@@ -1,5 +1,4 @@
-import { globalSnackbar } from '@/utils/b3Tip';
-import { ValidationError } from '@/utils/validationError';
+import { globalSnackbar, ValidationError } from '@/utils';
 
 export const addProductsToShoppingListErrorHandler = (error: Error) => {
   const message =

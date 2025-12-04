@@ -1,6 +1,6 @@
 import { B2BOrderData, MoneyFormat, OrderStatusItem } from '@/types';
 
-import { convertArrayToGraphql } from '../../../../utils/graphqlDataConvert';
+import { convertArrayToGraphql } from '../../../../utils';
 import B3Request from '../../request/b3Fetch';
 
 const companyInfo = `

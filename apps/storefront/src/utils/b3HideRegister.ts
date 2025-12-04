@@ -1,6 +1,6 @@
 import config from '@/lib/config';
 
-export const handleHideRegisterPage = (registerEnabled: boolean) => {
+const handleHideRegisterPage = (registerEnabled: boolean) => {
   const registerPageAll = document.querySelectorAll(config['dom.register']);
   // Text between sign in and register - [or]
   const navUserOrText = document.querySelectorAll('.navUser-or');
@@ -19,3 +19,5 @@ export const handleHideRegisterPage = (registerEnabled: boolean) => {
     });
   }
 };
+
+export default handleHideRegisterPage;

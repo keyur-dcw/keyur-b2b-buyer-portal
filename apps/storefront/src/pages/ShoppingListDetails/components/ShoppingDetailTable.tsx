@@ -19,16 +19,17 @@ import {
 } from '@/components/table/B3PaginationTable';
 import { TableColumnItem } from '@/components/table/B3Table';
 import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
+import { useEpicorPricing } from '@/hooks/useEpicorPricing';
+import { useEpicorTotal } from '@/hooks/useEpicorTotal';
 import { useMobile } from '@/hooks/useMobile';
 import { useSort } from '@/hooks/useSort';
 import { useB3Lang } from '@/lib/lang';
 import { updateB2BShoppingListsItem, updateBcShoppingListsItem } from '@/shared/service/b2b';
 import { rolePermissionSelector, useAppSelector } from '@/store';
+import { currencyFormat, snackbar } from '@/utils';
 import b2bGetVariantImageByVariantInfo from '@/utils/b2bGetVariantImageByVariantInfo';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
 import { getBCPrice, getDisplayPrice, getValidOptionsList } from '@/utils/b3Product/b3Product';
 import { getProductOptionsFields } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
 
 import B3FilterSearch from '../../../components/filter/B3FilterSearch';
 
@@ -73,7 +74,7 @@ interface ShoppingDetailTableProps {
   setIsRequestLoading: Dispatch<SetStateAction<boolean>>;
   shoppingListId: number | string;
   getShoppingListDetails: GetRequestList<SearchProps, CustomFieldItems>;
-  setCheckedArr: (values: CustomFieldItems) => void;
+  setCheckedArr: (values: ListItemProps[]) => void;
   isReadForApprove: boolean;
   isJuniorApprove: boolean;
   allowJuniorPlaceOrder: boolean;
@@ -343,7 +344,7 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
   const getSelectCheckbox = (selectCheckbox: Array<string | number>) => {
     if (selectCheckbox.length > 0) {
       const productList = paginationTableRef.current?.getList() || [];
-      const checkedItems: CustomFieldItems[] = [];
+      const checkedItems: ListItemProps[] = [];
       selectCheckbox.forEach((item: number | string) => {
         const newItems = productList.find((product: ListItemProps) => {
           const { node } = product;
@@ -378,6 +379,20 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
     }
   };
 
+  // Calculate total using Epicor prices when available
+  const productsForTotal = shoppingListInfo?.products?.edges?.map((item: ListItemProps) => ({
+    productId: item.node.productId,
+    variantSku: item.node.variantSku || '',
+    quantity: Number(item.node.quantity) || 1,
+    basePrice: item.node.basePrice,
+    taxPrice: Number(item.node.tax) || 0, // Use 'tax' field from ProductInfoProps
+  })) || [];
+
+  const { total: epicorTotal, isLoading: isEpicorTotalLoading } = useEpicorTotal({
+    products: productsForTotal,
+    enabled: isB2BUser,
+  });
+
   useEffect(() => {
     if (shoppingListInfo) {
       const {
@@ -386,7 +401,11 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
         totalTax,
       } = shoppingListInfo;
 
-      const NewShoppingListTotalPrice = showInclusiveTaxPrice
+      // For B2B users: Use Epicor total if available, otherwise keep showing loading
+      // For non-B2B users: Use backend total immediately
+      const NewShoppingListTotalPrice = isB2BUser
+        ? (epicorTotal > 0 && !isEpicorTotalLoading ? epicorTotal : 0)
+        : showInclusiveTaxPrice
         ? Number(grandTotal)
         : Number(grandTotal) - Number(totalTax) || 0.0;
 
@@ -402,7 +421,7 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
       setOriginProducts(cloneDeep(edges));
       setShoppingListTotalPrice(NewShoppingListTotalPrice);
     }
-  }, [shoppingListInfo, showInclusiveTaxPrice]);
+  }, [shoppingListInfo, showInclusiveTaxPrice, isB2BUser, epicorTotal, isEpicorTotalLoading]);
 
   useEffect(() => {
     if (shoppingListInfo) {
@@ -519,8 +538,28 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
       key: 'Price',
       title: b3Lang('shoppingList.table.price'),
       render: (row: CustomFieldItems) => {
-        const { basePrice, taxPrice = 0 } = row;
+        const { basePrice, taxPrice = 0, productId, variantSku, quantity } = row;
         const inTaxPrice = getBCPrice(Number(basePrice), Number(taxPrice));
+
+        // Use Epicor pricing hook for B2B users
+        const { epicorPrice, isLoading, currency } = useEpicorPricing({
+          productId: productId,
+          sku: variantSku || '',
+          quantity: Number(quantity) || 1,
+          enabled: isB2BUser,
+        });
+
+        // Use Epicor price if available, otherwise use base price
+        const displayPrice = isB2BUser && epicorPrice !== null ? epicorPrice : inTaxPrice;
+        const displayCurrency = isB2BUser && epicorPrice !== null ? currency : 'USD';
+
+        // Format price with currency
+        const formatPrice = (price: number, curr: string) => {
+          return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: curr,
+          }).format(price);
+        };
 
         return (
           <Typography
@@ -528,7 +567,17 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
               padding: '12px 0',
             }}
           >
-            {showPrice(currencyFormat(inTaxPrice), row)}
+            {isB2BUser ? (
+              isLoading ? (
+                'Loading...'
+              ) : epicorPrice !== null ? (
+                showPrice(formatPrice(displayPrice, displayCurrency), row)
+              ) : (
+                showPrice(currencyFormat(inTaxPrice), row)
+              )
+            ) : (
+              showPrice(currencyFormat(inTaxPrice), row)
+            )}
           </Typography>
         );
       },
@@ -580,11 +629,32 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
           itemId,
           productsSearch: { options },
           taxPrice = 0,
+          productId,
+          variantSku,
         } = row;
 
         const inTaxPrice = getBCPrice(Number(basePrice), Number(taxPrice));
 
-        const totalPrice = inTaxPrice * Number(quantity);
+        // Use Epicor pricing hook for B2B users
+        const { epicorPrice, isLoading, currency } = useEpicorPricing({
+          productId: productId,
+          sku: variantSku || '',
+          quantity: Number(quantity) || 1,
+          enabled: isB2BUser,
+        });
+
+        // Calculate total price
+        const unitPrice = isB2BUser && epicorPrice !== null ? epicorPrice : inTaxPrice;
+        const totalPrice = unitPrice * Number(quantity);
+        const displayCurrency = isB2BUser && epicorPrice !== null ? currency : 'USD';
+
+        // Format price with currency
+        const formatPrice = (price: number, curr: string) => {
+          return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: curr,
+          }).format(price);
+        };
 
         const optionList = options || JSON.parse(row.optionList);
 
@@ -601,7 +671,17 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
                 padding: '12px 0',
               }}
             >
-              {showPrice(currencyFormat(totalPrice), row)}
+              {isB2BUser ? (
+                isLoading ? (
+                  'Loading...'
+                ) : epicorPrice !== null ? (
+                  showPrice(formatPrice(totalPrice, displayCurrency), row)
+                ) : (
+                  showPrice(currencyFormat(totalPrice), row)
+                )
+              ) : (
+                showPrice(currencyFormat(totalPrice), row)
+              )}
             </Typography>
             <Box
               sx={{
@@ -725,7 +805,13 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
             fontSize: '24px',
           }}
         >
-          {priceHidden ? '' : currencyFormat(shoppingListTotalPrice || 0.0)}
+          {priceHidden ? '' : (
+            isB2BUser && isEpicorTotalLoading ? (
+              'Loading...'
+            ) : (
+              currencyFormat(shoppingListTotalPrice || 0.0)
+            )
+          )}
         </Typography>
       </Box>
       <Box

@@ -7,10 +7,6 @@ export type LoginFlagType =
   | 'accountIncorrect'
   | 'accountPrelaunch'
   | 'deviceCrowdingLogIn'
-  | 'invoiceErrorTip'
-  | 'pendingApprovalToViewPrices'
-  | 'pendingApprovalToOrder'
-  | 'pendingApprovalToAccessFeatures'
-  | 'accountInactive';
+  | 'invoiceErrorTip';
 
 export type LoginTypeConfig = Record<LoginFlagType, { alertType: AlertColor; tip: string }>;

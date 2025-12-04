@@ -1,6 +1,6 @@
 import { LangFormatFunction } from '@/lib/lang';
 import { store } from '@/store';
-import { getActiveCurrencyInfo } from '@/utils/currencyUtils';
+import { getActiveCurrencyInfo } from '@/utils';
 
 import {
   B2BOrderData,

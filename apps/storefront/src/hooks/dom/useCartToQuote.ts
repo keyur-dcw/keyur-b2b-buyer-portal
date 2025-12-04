@@ -13,8 +13,7 @@ import { CustomStyleContext } from '@/shared/customStyleButton';
 import { useAppSelector } from '@/store';
 import { CompanyStatus } from '@/types';
 import { OpenPageState } from '@/types/hooks';
-import { B3SStorage } from '@/utils/b3Storage';
-import { globalSnackbar } from '@/utils/b3Tip';
+import { B3SStorage, globalSnackbar } from '@/utils';
 
 import { useGetButtonText } from '../useGetButtonText';
 import useStorageState from '../useStorageState';

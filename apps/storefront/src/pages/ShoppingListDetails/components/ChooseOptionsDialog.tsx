@@ -13,7 +13,7 @@ import styled from '@emotion/styled';
 import { Box, Divider, TextField, Typography } from '@mui/material';
 import isEqual from 'lodash-es/isEqual';
 
-import { B3CustomForm } from '@/components/B3CustomForm';
+import { B3CustomForm } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
 import B3Spin from '@/components/spin/B3Spin';
 import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
@@ -21,7 +21,7 @@ import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useB3Lang } from '@/lib/lang';
 import { searchProducts } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
+import { currencyFormat, snackbar } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
 import {
   calculateProductListPrice,
@@ -29,7 +29,6 @@ import {
   getProductInfoDisplayPrice,
   getVariantInfoDisplayPrice,
 } from '@/utils/b3Product/b3Product';
-import { snackbar } from '@/utils/b3Tip';
 
 import { AllOptionProps, ShoppingListProductItem, SimpleObject, Variant } from '../../../types';
 import {

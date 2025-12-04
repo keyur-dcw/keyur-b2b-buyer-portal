@@ -5,7 +5,7 @@ import { type SetOpenPage } from '@/pages/SetOpenPage';
 import RegisteredCloseButton from './RegisteredCloseButton';
 import { CardContainer } from './styled';
 
-export function B3Card(props: PropsWithChildren<{ setOpenPage?: SetOpenPage }>) {
+export default function B3Card(props: PropsWithChildren<{ setOpenPage?: SetOpenPage }>) {
   const { setOpenPage, children } = props;
 
   return (

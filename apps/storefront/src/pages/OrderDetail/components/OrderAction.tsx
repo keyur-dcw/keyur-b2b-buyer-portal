@@ -8,14 +8,20 @@ import CustomButton from '@/components/button/CustomButton';
 import { useB3Lang } from '@/lib/lang';
 import HierarchyDialog from '@/pages/CompanyHierarchy/components/HierarchyDialog';
 import { GlobalContext } from '@/shared/global';
+
+import { getBigCommerceOrderMetaFields } from '@/shared/service/b2b/graphql/bigcommerceOrderMeta';
+
 import { isB2BUserSelector, rolePermissionSelector, useAppSelector } from '@/store';
 import { Address, MoneyFormat, OrderProductItem } from '@/types';
+import {
+  b2bPrintInvoice,
+  currencyFormat,
+  displayFormat,
+  ordersCurrencyFormat,
+  snackbar,
+} from '@/utils';
 import { verifyLevelPermission } from '@/utils/b3CheckPermissions/check';
 import { b2bPermissionsMap } from '@/utils/b3CheckPermissions/config';
-import { currencyFormat, ordersCurrencyFormat } from '@/utils/b3CurrencyFormat';
-import { displayFormat } from '@/utils/b3DateFormat';
-import { b2bPrintInvoice } from '@/utils/b3PrintInvoice';
-import { snackbar } from '@/utils/b3Tip';
 
 import { OrderDetailsContext, OrderDetailsState } from '../context/OrderDetailsContext';
 
@@ -168,6 +174,85 @@ function OrderCard(props: OrderCardProps) {
     return false;
   };
 
+  /**
+   * Replace BigCommerce order ID with Epicor order number in invoice HTML
+   */
+  const replaceOrderIdInHtml = (html: string, bigcommerceOrderId: string, epicorOrderNumber: string | null): string => {
+    if (!epicorOrderNumber) {
+      return html;
+    }
+
+    let modifiedHtml = html;
+
+    // Replace order ID in various formats
+    const patterns = [
+      new RegExp(`Order\\s*#\\s*${bigcommerceOrderId}`, 'gi'),
+      new RegExp(`for\\s+Order\\s*#\\s*${bigcommerceOrderId}`, 'gi'),
+      new RegExp(`Order:\\s*#?\\s*${bigcommerceOrderId}`, 'gi'),
+      new RegExp(`#${bigcommerceOrderId}(?!\\d)`, 'g'),
+    ];
+
+    patterns.forEach((pattern) => {
+      modifiedHtml = modifiedHtml.replace(pattern, (match) => {
+        if (match.includes('#')) {
+          return match.replace(bigcommerceOrderId, epicorOrderNumber);
+        }
+        return match.replace(bigcommerceOrderId, epicorOrderNumber);
+      });
+    });
+
+    modifiedHtml = modifiedHtml.replace(
+      new RegExp(`Invoice for Order #${bigcommerceOrderId}`, 'gi'),
+      `Invoice for Order #${epicorOrderNumber}`,
+    );
+
+    return modifiedHtml;
+  };
+
+  /**
+   * Handle print invoice in new window with Epicor order number replacement
+   */
+  const handlePrintInvoiceInNewWindow = async (orderId: string) => {
+    try {
+      // Fetch Epicor order number first
+      let epicorOrderNumber: string | null = null;
+      try {
+        const integrationInfo = await getBigCommerceOrderMetaFields(orderId);
+        epicorOrderNumber = integrationInfo?.EpicorErpOrderNumber || null;
+      } catch (error) {
+        console.error('Error fetching Epicor order number for invoice:', error);
+      }
+
+      // Fetch invoice HTML
+      const response = await fetch(`/account.php?action=print_invoice&order_id=${orderId}`);
+      if (!response.ok) {
+        throw new Error('Network response was not ok.');
+      }
+
+      let html = await response.text();
+
+      // Replace BigCommerce order ID with Epicor order number
+      if (epicorOrderNumber) {
+        html = replaceOrderIdInHtml(html, orderId, epicorOrderNumber);
+      }
+
+      // Open in new window with modified HTML
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        // Trigger print dialog after content loads
+        printWindow.onload = () => {
+          printWindow.print();
+        };
+      }
+    } catch (error) {
+      console.error('Error printing invoice:', error);
+      // Fallback to original method if error occurs
+      window.open(`/account.php?action=print_invoice&order_id=${orderId}`);
+    }
+  };
+
   const handleOpenDialog = (name: string) => {
     if (name === 'viewInvoice') {
       if (ipStatus !== 0) {
@@ -176,7 +261,7 @@ function OrderCard(props: OrderCardProps) {
         b2bPrintInvoice(orderId, 'b2b_print_invoice');
       }
     } else if (name === 'printInvoice') {
-      window.open(`/account.php?action=print_invoice&order_id=${orderId}`);
+       handlePrintInvoiceInNewWindow(orderId);
     } else {
       const isNeedSwitch = handleShowSwitchCompanyModal();
       if (isNeedSwitch) return;

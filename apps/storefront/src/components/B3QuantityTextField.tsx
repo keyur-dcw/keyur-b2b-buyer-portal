@@ -17,7 +17,7 @@ interface B3NumberTextFieldProps {
   sx?: CustomFieldItems;
 }
 
-export function B3QuantityTextField(props: B3NumberTextFieldProps) {
+export default function B3QuantityTextField(props: B3NumberTextFieldProps) {
   const [isMobile] = useMobile();
 
   const {

@@ -6,9 +6,11 @@ import { addProductFromPage as addProductFromPageToShoppingList } from '@/hooks/
 import { addProductsFromCartToQuote, addProductsToDraftQuote } from '@/hooks/dom/utils';
 import { setElementsListenersConfig } from '@/lib/config';
 import { useB3Lang } from '@/lib/lang';
-import { addProductsToShoppingList } from '@/pages/PDP/addProductsToShoppingList';
-import { addProductsToShoppingListErrorHandler } from '@/pages/PDP/addProductsToShoppingListErrorHandler';
-import { useAddedToShoppingListAlert } from '@/pages/PDP/useAddedToShoppingListAlert';
+import {
+  addProductsToShoppingList,
+  addProductsToShoppingListErrorHandler,
+  useAddedToShoppingListAlert,
+} from '@/pages/PDP';
 import { type SetOpenPage } from '@/pages/SetOpenPage';
 import { ShoppingListsItemsProps } from '@/pages/ShoppingLists/config';
 import { CustomStyleContext } from '@/shared/customStyleButton';
@@ -25,13 +27,13 @@ import {
 } from '@/store';
 import { setB2BToken } from '@/store/slices/company';
 import { QuoteItem } from '@/types/quotes';
+import { channelId } from '@/utils';
 import CallbackManager from '@/utils/b3CallbackManager';
 import b2bLogger from '@/utils/b3Logger';
 import { logoutSession } from '@/utils/b3logout';
 import { LineItem } from '@/utils/b3Product/b3Product';
 import createShoppingList from '@/utils/b3ShoppingList/b3ShoppingList';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
-import { channelId } from '@/utils/basicConfig';
 import { getCurrentCustomerInfo } from '@/utils/loginInfo';
 import { endMasquerade, startMasquerade } from '@/utils/masquerade';
 

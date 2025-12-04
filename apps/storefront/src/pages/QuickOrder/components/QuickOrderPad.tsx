@@ -2,20 +2,21 @@ import { useEffect, useState } from 'react';
 import { UploadFile as UploadFileIcon } from '@mui/icons-material';
 import { Box, Card, CardContent, Divider, Typography } from '@mui/material';
 
+import { B3Upload } from '@/components';
 import CustomButton from '@/components/button/CustomButton';
-import { B3Upload } from '@/components/upload/B3Upload';
 import { CART_URL } from '@/constants';
 import { useBlockPendingAccountViewPrice } from '@/hooks/useBlockPendingAccountViewPrice';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import { useAppSelector } from '@/store';
+import { snackbar } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
-import { snackbar } from '@/utils/b3Tip';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
 
 import { addCartProductToVerify } from '../utils';
+import { isProductShowPriceEnabled } from '@/utils/productShowPrice';
 
 import QuickAdd from './QuickAdd';
 import SearchProduct from './SearchProduct';
@@ -32,8 +33,6 @@ export default function QuickOrderPad() {
   const featureFlags = useFeatureFlags();
   const backendValidationEnabled =
     featureFlags['B2B-3318.move_stock_and_backorder_validation_to_backend'] ?? false;
-  const passWithModifiersToProductUpload =
-    featureFlags['B2B-3978.pass_with_modifiers_to_product_upload'] ?? false;
 
   const companyStatus = useAppSelector(({ company }) => company.companyInfo.status);
 
@@ -75,15 +74,17 @@ export default function QuickOrderPad() {
     b3TriggerCartNumber();
   };
 
-  const getValidProducts = (products: CustomFieldItems) => {
+  const getValidProducts = async (products: CustomFieldItems[] | CustomFieldItems) => {
+    const productsArray = Array.isArray(products) ? products : [products];
     const notPurchaseSku: string[] = [];
     const productItems: CustomFieldItems[] = [];
     const limitProduct: CustomFieldItems[] = [];
     const minLimitQuantity: CustomFieldItems[] = [];
     const maxLimitQuantity: CustomFieldItems[] = [];
     const outOfStock: string[] = [];
+    const notShowPrice: string[] = [];
 
-    products.forEach((item: CustomFieldItems) => {
+    for (const item of productsArray) {
       const { products: currentProduct, qty } = item;
       const {
         option,
@@ -99,12 +100,18 @@ export default function QuickOrderPad() {
       } = currentProduct;
       if (purchasingDisabled === '1' || purchasingDisabled) {
         notPurchaseSku.push(variantSku);
-        return;
+        continue;
+      }
+
+      const showPriceEnabled = await isProductShowPriceEnabled(productId);
+      if (!showPriceEnabled) {
+        notShowPrice.push(variantSku);
+        continue;
       }
 
       if (isStock === '1' && stock === 0) {
         outOfStock.push(variantSku);
-        return;
+        continue;
       }
 
       if (isStock === '1' && stock > 0 && stock < Number(qty)) {
@@ -112,7 +119,7 @@ export default function QuickOrderPad() {
           variantSku,
           AvailableAmount: stock,
         });
-        return;
+        continue;
       }
 
       if (Number(minQuantity) > 0 && Number(qty) < Number(minQuantity)) {
@@ -121,7 +128,7 @@ export default function QuickOrderPad() {
           minQuantity,
         });
 
-        return;
+        continue;
       }
 
       if (Number(maxQuantity) > 0 && Number(qty) > Number(maxQuantity)) {
@@ -130,7 +137,7 @@ export default function QuickOrderPad() {
           maxQuantity,
         });
 
-        return;
+        continue;
       }
 
       const optionsList = option.map((item: CustomFieldItems) => ({
@@ -145,7 +152,7 @@ export default function QuickOrderPad() {
         optionSelections: optionsList,
         allOptions: modifiers,
       });
-    });
+    }
 
     return {
       notPurchaseSku,
@@ -154,6 +161,7 @@ export default function QuickOrderPad() {
       minLimitQuantity,
       maxLimitQuantity,
       outOfStock,
+      notShowPrice,
     };
   };
 
@@ -169,7 +177,8 @@ export default function QuickOrderPad() {
         minLimitQuantity,
         maxLimitQuantity,
         outOfStock,
-      } = getValidProducts(validProduct);
+        notShowPrice,
+      } = await getValidProducts(validProduct);
 
       if (productItems.length > 0) {
         const res = await createOrUpdateExistingCart(productItems);
@@ -239,6 +248,14 @@ export default function QuickOrderPad() {
         });
       }
 
+      if (notShowPrice.length > 0) {
+        snackbar.error(
+          b3Lang('purchasedProducts.quickOrderPad.showPriceDisabled', {
+            skus: notShowPrice.join(', '),
+          }),
+        );
+      }
+
       setIsOpenBulkLoadCSV(false);
     } finally {
       setIsLoading(false);
@@ -261,9 +278,35 @@ export default function QuickOrderPad() {
             optionValue: opt.id,
           })) || [],
         allOptions: item.products?.modifiers || [],
+        variantSku: item.products?.variantSku,
       }));
 
-      const res = await createOrUpdateExistingCart(productItems);
+      const allowedItems: typeof productItems = [];
+      const blockedSkus: string[] = [];
+
+      for (const item of productItems) {
+        const showPriceEnabled = await isProductShowPriceEnabled(item.productId);
+        if (showPriceEnabled) {
+          allowedItems.push(item);
+        } else {
+          blockedSkus.push(item.variantSku || String(item.productId));
+        }
+      }
+
+      if (blockedSkus.length > 0) {
+        snackbar.error(
+          b3Lang('purchasedProducts.quickOrderPad.showPriceDisabled', {
+            skus: blockedSkus.join(', '),
+          }),
+        );
+      }
+
+      if (!allowedItems.length) {
+        setIsOpenBulkLoadCSV(false);
+        return;
+      }
+
+      const res = await createOrUpdateExistingCart(allowedItems);
 
       getSnackbarMessage(res);
       b3TriggerCartNumber();
@@ -388,7 +431,6 @@ export default function QuickOrderPad() {
         addBtnText={addBtnText}
         isLoading={isLoading}
         isToCart
-        withModifiers={passWithModifiersToProductUpload}
       />
     </Card>
   );

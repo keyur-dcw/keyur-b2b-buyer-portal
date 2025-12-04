@@ -3,9 +3,11 @@ import { Delete, Edit, StickyNote2 } from '@mui/icons-material';
 import { Box, CardContent, styled, TextField, Typography } from '@mui/material';
 
 import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
+import { useEpicorPricing } from '@/hooks/useEpicorPricing';
 import { useB3Lang } from '@/lib/lang';
+import { useAppSelector } from '@/store';
+import { currencyFormat } from '@/utils';
 import b2bGetVariantImageByVariantInfo from '@/utils/b2bGetVariantImageByVariantInfo';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
 import { getBCPrice } from '@/utils/b3Product/b3Product';
 
 import { getProductOptionsFields } from '../../../utils/b3Product/shared/config';
@@ -66,11 +68,33 @@ function ShoppingDetailCard(props: ShoppingDetailCardProps) {
     productUrl,
     taxPrice = 0,
     productNote,
+    productId,
   } = shoppingDetail;
 
-  const price = getBCPrice(Number(basePrice), Number(taxPrice));
+  // Check if B2B user
+  const isB2BUser = useAppSelector(({ company }) => company.customer.role) !== 2;
 
-  const total = price * Number(quantity);
+  // Use Epicor pricing hook for B2B users
+  const { epicorPrice, isLoading, currency } = useEpicorPricing({
+    productId: productId,
+    sku: variantSku || '',
+    quantity: Number(quantity) || 1,
+    enabled: isB2BUser,
+  });
+
+  const basePriceWithTax = getBCPrice(Number(basePrice), Number(taxPrice));
+  
+  // Use Epicor price if available, otherwise use base price
+  const unitPrice = isB2BUser && epicorPrice !== null ? epicorPrice : basePriceWithTax;
+  const total = unitPrice * Number(quantity);
+  
+  // Format price with currency
+  const formatPrice = (price: number, curr: string) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: curr,
+    }).format(price);
+  };
 
   const product: any = {
     ...shoppingDetail.productsSearch,
@@ -180,7 +204,17 @@ function ShoppingDetailCard(props: ShoppingDetailCardProps) {
             }}
           >
             {b3Lang('shoppingList.shoppingDetailCard.price', {
-              price: showPrice(currencyFormat(price), shoppingDetail),
+              price: isB2BUser ? (
+                isLoading ? (
+                  'Loading...'
+                ) : epicorPrice !== null ? (
+                  showPrice(formatPrice(unitPrice, currency), shoppingDetail)
+                ) : (
+                  showPrice(currencyFormat(basePriceWithTax), shoppingDetail)
+                )
+              ) : (
+                showPrice(currencyFormat(basePriceWithTax), shoppingDetail)
+              ),
             })}
           </Typography>
 
@@ -221,7 +255,17 @@ function ShoppingDetailCard(props: ShoppingDetailCardProps) {
             }}
           >
             {b3Lang('shoppingList.shoppingDetailCard.total', {
-              total: showPrice(currencyFormat(total), shoppingDetail),
+              total: isB2BUser ? (
+                isLoading ? (
+                  'Loading...'
+                ) : epicorPrice !== null ? (
+                  showPrice(formatPrice(total, currency), shoppingDetail)
+                ) : (
+                  showPrice(currencyFormat(total), shoppingDetail)
+                )
+              ) : (
+                showPrice(currencyFormat(total), shoppingDetail)
+              ),
             })}
           </Typography>
           <Box

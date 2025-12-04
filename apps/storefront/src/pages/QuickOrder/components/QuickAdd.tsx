@@ -11,7 +11,7 @@ import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useB3Lang } from '@/lib/lang';
 import { getVariantInfoBySkus } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
-import { snackbar } from '@/utils/b3Tip';
+import { snackbar } from '@/utils';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
 import {
@@ -19,6 +19,7 @@ import {
   ValidatedProductWarning,
   validateProducts,
 } from '@/utils/validateProducts';
+import { isProductShowPriceEnabled } from '@/utils/productShowPrice';
 
 import { SimpleObject } from '../../../types';
 import { getCartProductInfo } from '../utils';
@@ -128,17 +129,18 @@ export default function QuickAdd() {
       min: number;
       max: number;
     }[] = [];
+    const notShowPrice: string[] = [];
 
     const cartProducts = await getCartProductInfo();
 
-    skus.forEach((sku) => {
+    for (const sku of skus) {
       const variantInfo: CustomFieldItems | null = (variantInfoList || []).find(
         (variant: CustomFieldItems) => variant.variantSku.toUpperCase() === sku.toUpperCase(),
       );
 
       if (!variantInfo) {
         notFoundSku.push(sku);
-        return;
+        continue;
       }
 
       const {
@@ -166,7 +168,13 @@ export default function QuickAdd() {
 
       if (purchasingDisabled === '1') {
         notPurchaseSku.push(sku);
-        return;
+        continue;
+      }
+
+      const showPriceEnabled = await isProductShowPriceEnabled(productId);
+      if (!showPriceEnabled) {
+        notShowPrice.push(sku);
+        continue;
       }
 
       if (isStock === '1' && allQuantity > Number(stock)) {
@@ -175,7 +183,7 @@ export default function QuickAdd() {
           stock: Number(stock),
         });
 
-        return;
+        continue;
       }
 
       if (
@@ -190,7 +198,7 @@ export default function QuickAdd() {
           max: allQuantity > maxQuantity ? maxQuantity : 0,
         });
 
-        return;
+        continue;
       }
 
       const optionList = parseOptionList(options);
@@ -204,7 +212,7 @@ export default function QuickAdd() {
         quantity,
         variantId: parseInt(variantId, 10) || 0,
       });
-    });
+    }
 
     return {
       notFoundSku,
@@ -213,6 +221,7 @@ export default function QuickAdd() {
       productItems,
       passSku,
       orderLimitSku,
+      notShowPrice,
     };
   };
 
@@ -261,8 +270,15 @@ export default function QuickAdd() {
     skuValue: SimpleObject,
     skus: string[],
   ) => {
-    const { notFoundSku, notPurchaseSku, productItems, passSku, notStockSku, orderLimitSku } =
-      await getProductItems(variantInfoList, skuValue, skus);
+    const {
+      notFoundSku,
+      notPurchaseSku,
+      productItems,
+      passSku,
+      notStockSku,
+      orderLimitSku,
+      notShowPrice,
+    } = await getProductItems(variantInfoList, skuValue, skus);
 
     if (notFoundSku.length > 0) {
       showErrors(value, notFoundSku, 'sku', '');
@@ -317,6 +333,15 @@ export default function QuickAdd() {
       });
     }
 
+    if (notShowPrice.length > 0) {
+      showErrors(value, notShowPrice, 'sku', '');
+      snackbar.error(
+        b3Lang('purchasedProducts.quickOrderPad.showPriceDisabled', {
+          skus: notShowPrice.join(', '),
+        }),
+      );
+    }
+
     return { productItems, passSku };
   };
 
@@ -329,11 +354,18 @@ export default function QuickAdd() {
     passSku: string[];
     notFoundSkus: string[];
     validationErrors: (ValidatedProductWarning | ValidatedProductError)[];
+    notShowPrice: string[];
   }> => {
     const notFoundSkus = filterInputSkusForNotFoundProducts(skus, variantInfoList);
 
     if (variantInfoList.length === 0) {
-      return { productItems: [], passSku: [], notFoundSkus, validationErrors: [] };
+      return {
+        productItems: [],
+        passSku: [],
+        notFoundSkus,
+        validationErrors: [],
+        notShowPrice: [],
+      };
     }
 
     const productsToValidate = mapCatalogToValidationPayload(variantInfoList, skuValue);
@@ -344,11 +376,23 @@ export default function QuickAdd() {
 
     const errors = [...warning, ...error];
 
-    const productItems = mergeValidatedWithCatalog(validProducts, variantInfoList);
+    const mergedProducts = mergeValidatedWithCatalog(validProducts, variantInfoList);
+
+    const productItems: CustomFieldItems[] = [];
+    const notShowPrice: string[] = [];
+
+    for (const product of mergedProducts) {
+      const showPriceEnabled = await isProductShowPriceEnabled(product.productId);
+      if (showPriceEnabled) {
+        productItems.push(product);
+      } else {
+        notShowPrice.push(product.variantSku);
+      }
+    }
 
     const passSku = productItems.map((item) => item.variantSku);
 
-    return { productItems, passSku, notFoundSkus, validationErrors: errors };
+    return { productItems, passSku, notFoundSkus, validationErrors: errors, notShowPrice };
   };
 
   const addProductsToCart = async (products: CustomFieldItems[]) => {
@@ -393,7 +437,7 @@ export default function QuickAdd() {
 
         if (featureFlags['B2B-3318.move_stock_and_backorder_validation_to_backend']) {
           const result = await handleBackendValidation(variantInfoList, skuQuantityMap, skus);
-          const { productItems, passSku, notFoundSkus, validationErrors } = result;
+          const { productItems, passSku, notFoundSkus, validationErrors, notShowPrice } = result;
 
           validationErrors.forEach((err) => {
             if (err.status === 'error') {
@@ -415,6 +459,14 @@ export default function QuickAdd() {
             snackbar.error(
               b3Lang('purchasedProducts.quickAdd.notFoundSku', {
                 notFoundSku: notFoundSkus.join(','),
+              }),
+            );
+          }
+
+          if (notShowPrice.length > 0) {
+            snackbar.error(
+              b3Lang('purchasedProducts.quickOrderPad.showPriceDisabled', {
+                skus: notShowPrice.join(', '),
               }),
             );
           }

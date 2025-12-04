@@ -2,16 +2,17 @@ import { KeyboardEventHandler, useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Box, Grid, Typography } from '@mui/material';
 
-import { B3CustomForm } from '@/components/B3CustomForm';
+import { B3CustomForm } from '@/components';
 import CustomButton from '@/components/button/CustomButton';
 import B3Spin from '@/components/spin/B3Spin';
 import { useBlockPendingAccountViewPrice } from '@/hooks/useBlockPendingAccountViewPrice';
 import { useB3Lang } from '@/lib/lang';
 import { getVariantInfoBySkus } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
+import { snackbar } from '@/utils';
 import { compareOption } from '@/utils/b3Product/b3Product';
 import { getAllModifierDefaultValue, getQuickAddRowFields } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
+import { isProductShowPriceEnabled } from '@/utils/productShowPrice';
 
 import { ShoppingListAddProductOption, SimpleObject } from '../../../types';
 
@@ -136,22 +137,23 @@ export default function QuickAdd(props: AddToListContentProps) {
   };
 
   const getProductItems = useCallback(
-    (variantInfoList: CustomFieldItems, skuValue: SimpleObject, skus: string[]) => {
+    async (variantInfoList: CustomFieldItems, skuValue: SimpleObject, skus: string[]) => {
       const notFoundSku: string[] = [];
       const notPurchaseSku: string[] = [];
       const productItems: CustomFieldItems[] = [];
       const passSku: string[] = [];
       const notAddAble: string[] = [];
       const numberLimit: string[] = [];
+      const notShowPrice: string[] = [];
 
-      skus.forEach((sku) => {
-        const variantInfo: CustomFieldItems | null = (variantInfoList || []).find(
-          (variant: CustomFieldItems) => variant.variantSku.toUpperCase() === sku.toUpperCase(),
+      for (const sku of skus) {
+        const variantInfo: CustomFieldItems | null = (variantInfoList || []).find((variant: CustomFieldItems) =>
+          variant.variantSku.toUpperCase() === sku.toUpperCase(),
         );
 
         if (!variantInfo) {
           notFoundSku.push(sku);
-          return;
+          continue;
         }
 
         const {
@@ -168,7 +170,15 @@ export default function QuickAdd(props: AddToListContentProps) {
 
         if (purchasingDisabled === '1' && !allowAddNonPurchasableProduct && type === 'quoteDraft') {
           notPurchaseSku.push(sku);
-          return;
+          continue;
+        }
+
+        if (type === 'shoppingList') {
+          const showPriceEnabled = await isProductShowPriceEnabled(productId);
+          if (!showPriceEnabled) {
+            notShowPrice.push(sku);
+            continue;
+          }
         }
 
         const notPassedModifier = defaultModifiers.filter(
@@ -177,12 +187,12 @@ export default function QuickAdd(props: AddToListContentProps) {
         if (notPassedModifier.length > 0) {
           notAddAble.push(sku);
 
-          return;
+          continue;
         }
 
         if (Number(quantity) < 1 || Number(quantity) > 1000000) {
           numberLimit.push(sku);
-          return;
+          continue;
         }
 
         const optionList = (options || []).reduce(
@@ -237,7 +247,7 @@ export default function QuickAdd(props: AddToListContentProps) {
           }
           if (quoteDraftItemQuantity > 1000000) {
             numberLimit.push(sku);
-            return;
+            continue;
           }
         }
 
@@ -248,7 +258,7 @@ export default function QuickAdd(props: AddToListContentProps) {
           quantity,
           variantId: parseInt(variantId, 10) || 0,
         });
-      });
+      }
 
       return {
         notFoundSku,
@@ -257,6 +267,7 @@ export default function QuickAdd(props: AddToListContentProps) {
         passSku,
         notAddAble,
         numberLimit,
+        notShowPrice,
       };
     },
     [allowAddNonPurchasableProduct, draftQuoteList, type],
@@ -319,8 +330,15 @@ export default function QuickAdd(props: AddToListContentProps) {
         }
 
         const variantInfoList = await getVariantList(skus);
-        const { notFoundSku, notPurchaseSku, productItems, notAddAble, passSku, numberLimit } =
-          getProductItems(variantInfoList, skuValue, skus);
+        const {
+          notFoundSku,
+          notPurchaseSku,
+          productItems,
+          notAddAble,
+          passSku,
+          numberLimit,
+          notShowPrice,
+        } = await getProductItems(variantInfoList, skuValue, skus);
 
         if (notFoundSku.length > 0) {
           showErrors(value, notFoundSku, 'sku', '');
@@ -357,6 +375,15 @@ export default function QuickAdd(props: AddToListContentProps) {
           snackbar.error(
             b3Lang('shoppingList.quickAdd.skuLimitQuantity', {
               numberLimit: numberLimit.join(', '),
+            }),
+          );
+        }
+
+        if (notShowPrice.length > 0) {
+          showErrors(value, notShowPrice, 'sku', '');
+          snackbar.error(
+            b3Lang('shoppingList.quickAdd.showPriceDisabled', {
+              notAllowed: notShowPrice.join(', '),
             }),
           );
         }

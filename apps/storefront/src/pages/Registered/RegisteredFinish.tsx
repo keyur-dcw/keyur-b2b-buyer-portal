@@ -6,7 +6,7 @@ import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import { CustomStyleContext } from '@/shared/customStyleButton';
 import { GlobalContext } from '@/shared/global';
-import { B3SStorage } from '@/utils/b3Storage';
+import { B3SStorage } from '@/utils';
 
 import { RegisteredContext } from './context/RegisteredContext';
 import { PrimaryButton } from './PrimaryButton';

@@ -5,20 +5,23 @@ import B3Spin from '@/components/spin/B3Spin';
 import { B3PaginationTable, GetRequestList } from '@/components/table/B3PaginationTable';
 import { TableColumnItem } from '@/components/table/B3Table';
 import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
+import { useEpicorPricing } from '@/hooks/useEpicorPricing';
 import { useMobile } from '@/hooks/useMobile';
 import { useSort } from '@/hooks/useSort';
 import { useB3Lang } from '@/lib/lang';
 import { getOrderedProducts, searchProducts } from '@/shared/service/b2b';
 import { activeCurrencyInfoSelector, useAppSelector } from '@/store';
 import { ProductInfoType } from '@/types/gql/graphql';
+import {
+  displayFormat,
+  distanceDay,
+  getProductPriceIncTaxOrExTaxBySetting,
+  snackbar,
+} from '@/utils';
 import b2bGetVariantImageByVariantInfo from '@/utils/b2bGetVariantImageByVariantInfo';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
-import { displayFormat } from '@/utils/b3DateFormat';
-import { distanceDay } from '@/utils/b3Picker';
-import { getProductPriceIncTaxOrExTaxBySetting } from '@/utils/b3Price';
 import { getDisplayPrice } from '@/utils/b3Product/b3Product';
 import { conversionProductsList } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
+import { isProductShowPriceEnabled } from '@/utils/productShowPrice';
 
 import B3FilterMore from '../../../components/filter/B3FilterMore';
 import B3FilterPicker from '../../../components/filter/B3FilterPicker';
@@ -138,6 +141,7 @@ function QuickOrderTable({
   const b3Lang = useB3Lang();
 
   const { currency_code: currencyCode } = useAppSelector(activeCurrencyInfoSelector);
+  const isB2BUser = useAppSelector(({ company }) => company.customer.role !== 2);
 
   const handleGetProductsById = async (listProducts: ListItemProps[]) => {
     if (listProducts.length > 0) {
@@ -160,7 +164,10 @@ function QuickOrderTable({
 
         const newProductsSearch = conversionProductsList(productsSearch);
 
-        listProducts.forEach((item) => {
+        const allowedProducts: ListItemProps[] = [];
+        const blockedSkus: string[] = [];
+
+        for (const item of listProducts) {
           const { node } = item;
 
           const productInfo = newProductsSearch.find((search: CustomFieldItems) => {
@@ -170,9 +177,25 @@ function QuickOrderTable({
           });
 
           node.productsSearch = productInfo || {};
-        });
 
-        return listProducts;
+          const showPriceEnabled = await isProductShowPriceEnabled(node.productId);
+
+          if (showPriceEnabled) {
+            allowedProducts.push(item);
+          } else {
+            blockedSkus.push(node.variantSku || node.productName || `${node.productId}`);
+          }
+        }
+
+        if (blockedSkus.length > 0) {
+          snackbar.error(
+            b3Lang('purchasedProducts.quickOrderPad.showPriceDisabled', {
+              skus: blockedSkus.join(', '),
+            }),
+          );
+        }
+
+        return allowedProducts;
       } catch (error: unknown) {
         if (error instanceof Error) {
           snackbar.error(error.message);
@@ -375,9 +398,24 @@ function QuickOrderTable({
             getProductPriceIncTaxOrExTaxBySetting(variants, Number(variantId)) || Number(basePrice);
         }
 
-        const qty = handleSetCheckedQty(row);
+        const qty = Number(handleSetCheckedQty(row)) || 1;
         const withTaxPrice = priceIncTax || Number(basePrice);
-        const price = withTaxPrice * Number(qty);
+
+        const { epicorPrice, isLoading, currency } = useEpicorPricing({
+          productId: row.productId,
+          sku: row.variantSku || '',
+          quantity: qty,
+          enabled: isB2BUser,
+        });
+
+        const unitPrice = isB2BUser && epicorPrice !== null ? epicorPrice : withTaxPrice;
+        const price = unitPrice * qty;
+        const displayCurrency =
+          isB2BUser && epicorPrice !== null ? currency || currencyCode : currencyCode;
+        const formattedPrice = new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: displayCurrency || 'USD',
+        }).format(price);
 
         return (
           <Typography
@@ -385,7 +423,7 @@ function QuickOrderTable({
               padding: '12px 0',
             }}
           >
-            {`${showPrice(currencyFormat(price), row)}`}
+            {isB2BUser && isLoading ? 'Loading...' : `${showPrice(formattedPrice, row)}`}
           </Typography>
         );
       },

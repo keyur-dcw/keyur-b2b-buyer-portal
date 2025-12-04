@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useContext, useEffect, useRef, useState } from 'react';
+import { Dispatch, SetStateAction, useContext, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowDropDown } from '@mui/icons-material';
 import { Box, Grid, Menu, MenuItem, SxProps, Typography, useMediaQuery } from '@mui/material';
@@ -7,6 +7,7 @@ import { v1 as uuid } from 'uuid';
 
 import CustomButton from '@/components/button/CustomButton';
 import { CART_URL, PRODUCT_DEFAULT_IMAGE } from '@/constants';
+import { useEpicorSubtotal } from '@/hooks/useEpicorSubtotal';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
@@ -18,9 +19,8 @@ import {
 } from '@/shared/service/b2b';
 import { activeCurrencyInfoSelector, rolePermissionSelector, useAppSelector } from '@/store';
 import { Product } from '@/types';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
+import { currencyFormat, snackbar } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
-import { getProductPriceIncTaxOrExTaxBySetting } from '@/utils/b3Price';
 import {
   addQuoteDraftProducts,
   calculateProductListPrice,
@@ -28,7 +28,6 @@ import {
   validProductQty,
 } from '@/utils/b3Product/b3Product';
 import { conversionProductsList } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
 import { validateProducts } from '@/utils/validateProducts';
@@ -106,10 +105,15 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
   const [isMobile] = useMobile();
   const ref = useRef<HTMLButtonElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedSubTotal, setSelectedSubTotal] = useState(0.0);
   const [openShoppingList, setOpenShoppingList] = useState(false);
   const [isOpenCreateShopping, setIsOpenCreateShopping] = useState(false);
   const [isShoppingListLoading, setIisShoppingListLoading] = useState(false);
+
+  // Use Epicor subtotal hook for selected products
+  const { subtotal: selectedSubTotal, isLoading: isEpicorSubtotalLoading } = useEpicorSubtotal({
+    checkedArr,
+    enabled: isB2BUser,
+  });
 
   const customerGroupId = useAppSelector((state) => state.company.customer.customerGroupId);
 
@@ -494,35 +498,7 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
     },
   ];
 
-  useEffect(() => {
-    if (checkedArr.length > 0) {
-      let total = 0.0;
-
-      checkedArr.forEach((item: CheckedProduct) => {
-        const {
-          node: {
-            variantId,
-            productsSearch: { variants },
-            quantity,
-            basePrice,
-          },
-        } = item;
-
-        if (variants?.length) {
-          const priceIncTax =
-            getProductPriceIncTaxOrExTaxBySetting(variants, Number(variantId)) ||
-            Number(basePrice || 0);
-          total += priceIncTax * Number(quantity);
-        } else {
-          total += Number(basePrice || 0) * Number(quantity);
-        }
-      });
-
-      setSelectedSubTotal((1000 * total) / 1000);
-    } else {
-      setSelectedSubTotal(0.0);
-    }
-  }, [checkedArr]);
+  // Subtotal is now calculated by useEpicorSubtotal hook
 
   let gridBarStyles: SxProps = {
     display: isMobile ? 'initial' : 'flex',
@@ -611,7 +587,9 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
                     }}
                   >
                     {b3Lang('purchasedProducts.footer.subtotal', {
-                      subtotal: currencyFormat(selectedSubTotal),
+                      subtotal: isB2BUser && isEpicorSubtotalLoading
+                        ? 'Loading...'
+                        : currencyFormat(selectedSubTotal),
                     })}
                   </Typography>
                   <Box

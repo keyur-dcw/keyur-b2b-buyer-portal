@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Box } from '@mui/material';
 
+import { Loading } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
-import { Loading } from '@/components/loading';
 import { useB3Lang } from '@/lib/lang';
 import { getInvoiceDetail } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
-import { snackbar } from '@/utils/b3Tip';
+import { snackbar } from '@/utils';
 
 import { gotoInvoiceCheckoutUrl } from '../Invoice/utils/payment';
 

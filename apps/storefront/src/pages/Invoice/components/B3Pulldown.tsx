@@ -7,13 +7,15 @@ import { styled } from '@mui/material/styles';
 import { useB3Lang } from '@/lib/lang';
 import { rolePermissionSelector, useAppSelector } from '@/store';
 import { InvoiceList } from '@/types/invoice';
+import { snackbar } from '@/utils';
 import { verifyLevelPermission } from '@/utils/b3CheckPermissions/check';
 import { b2bPermissionsMap } from '@/utils/b3CheckPermissions/config';
-import { snackbar } from '@/utils/b3Tip';
+
+import { getBigCommerceOrderMetaFields } from '@/shared/service/b2b/graphql/bigcommerceOrderMeta';
+import b2bLogger from '@/utils/b3Logger';
 
 import { gotoInvoiceCheckoutUrl } from '../utils/payment';
 import { getInvoiceDownloadPDFUrl, handlePrintPDF } from '../utils/pdf';
-
 import { triggerPdfDownload } from './triggerPdfDownload';
 
 const StyledMenu = styled(Menu)(() => ({
@@ -31,6 +33,7 @@ interface B3PulldownProps {
   handleOpenHistoryModal: (bool: boolean) => void;
   isCurrentCompany: boolean;
   invoicePay: boolean;
+  epicorOrderNumbers?: Record<string, string>;
 }
 
 function B3Pulldown({
@@ -40,6 +43,7 @@ function B3Pulldown({
   handleOpenHistoryModal,
   isCurrentCompany,
   invoicePay,
+  epicorOrderNumbers = {},
 }: B3PulldownProps) {
   const platform = useAppSelector(({ global }) => global.storeInfo.platform);
   const ref = useRef<HTMLButtonElement | null>(null);
@@ -47,7 +51,6 @@ function B3Pulldown({
   const [isPay, setIsPay] = useState<boolean>(true);
 
   const navigate = useNavigate();
-
   const b3Lang = useB3Lang();
 
   const { invoicePayPermission, purchasabilityPermission } = useAppSelector(rolePermissionSelector);
@@ -65,14 +68,31 @@ function B3Pulldown({
     setIsOpen(true);
   };
 
+  // ============================
+  // VIEW INVOICE (Preview PDF)
+  // ============================
   const handleViewInvoice = async (isPayNow: boolean) => {
-    const { id } = row;
+    const { id, orderNumber } = row;
 
     close();
-
     setIsRequestLoading(true);
 
-    const pdfUrl = await handlePrintPDF(id, isPayNow);
+    let epicorOrderNumber: string | null = null;
+
+    if (orderNumber) {
+      epicorOrderNumber = epicorOrderNumbers[orderNumber] || null;
+
+      if (!epicorOrderNumber) {
+        try {
+          const integrationInfo = await getBigCommerceOrderMetaFields(orderNumber);
+          epicorOrderNumber = integrationInfo?.EpicorErpOrderNumber || null;
+        } catch (error) {
+          b2bLogger.error('Error fetching Epicor order number:', error);
+        }
+      }
+    }
+
+    const pdfUrl = await handlePrintPDF(id, isPayNow, orderNumber, epicorOrderNumber);
 
     setIsRequestLoading(false);
 
@@ -81,20 +101,21 @@ function B3Pulldown({
       return;
     }
 
-    const { href } = window.location;
-    if (!href.includes('invoice')) {
-      return;
-    }
-
     window.open(pdfUrl, '_blank', 'fullscreen=yes');
   };
 
+  // ============================
+  // VIEW ORDER
+  // ============================
   const handleViewOrder = () => {
     const { orderNumber } = row;
     close();
     navigate(`/orderDetail/${orderNumber}`);
   };
 
+  // ============================
+  // PAY INVOICE
+  // ============================
   const handlePay = async () => {
     close();
 
@@ -112,32 +133,60 @@ function B3Pulldown({
 
     if (openBalance.value === '.' || Number(openBalance.value) === 0) {
       snackbar.error('The payment amount entered has an invalid value.');
-
       return;
     }
 
     await gotoInvoiceCheckoutUrl(params, platform, false);
   };
 
+  // ============================
+  // PAYMENT HISTORY
+  // ============================
   const viewPaymentHistory = async () => {
     close();
     handleOpenHistoryModal(true);
   };
 
+  // ============================
+  // DOWNLOAD PDF (ALWAYS BLOB)
+  // ============================
   const handleDownloadPDF = async () => {
-    const { id } = row;
+    const { id, orderNumber } = row;
 
     close();
     setIsRequestLoading(true);
-    const url = await getInvoiceDownloadPDFUrl(id);
 
-    setIsRequestLoading(false);
+    try {
+      let epicorOrderNumber: string | null = null;
 
-    triggerPdfDownload(url, 'file.pdf');
+      if (orderNumber) {
+        epicorOrderNumber = epicorOrderNumbers[orderNumber] || null;
+
+        if (!epicorOrderNumber) {
+          try {
+            const integrationInfo = await getBigCommerceOrderMetaFields(orderNumber);
+            epicorOrderNumber = integrationInfo?.EpicorErpOrderNumber || null;
+          } catch (error) {
+            b2bLogger.error('Error fetching Epicor order number:', error);
+          }
+        }
+      }
+
+      const url = await getInvoiceDownloadPDFUrl(id, false, orderNumber, epicorOrderNumber);
+
+      setIsRequestLoading(false);
+      triggerPdfDownload(url, 'invoice.pdf');
+
+    } catch (error) {
+      b2bLogger.error('Error downloading PDF:', error);
+      setIsRequestLoading(false);
+      snackbar.error('Failed to download PDF');
+    }
   };
 
   useEffect(() => {
     const { openBalance, orderUserId, companyInfo } = row;
+
     const payPermissions =
       Number(openBalance.value) > 0 && invoicePayPermission && purchasabilityPermission;
 
@@ -151,8 +200,6 @@ function B3Pulldown({
     });
 
     setIsCanViewOrder(viewOrderPermission);
-    // disabling as we only need to run this once and values at starting render are good enough
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -165,6 +212,7 @@ function B3Pulldown({
       >
         <MoreHorizIcon />
       </IconButton>
+
       <StyledMenu
         id="basic-menu"
         anchorEl={ref.current}
@@ -182,69 +230,37 @@ function B3Pulldown({
           horizontal: 'right',
         }}
       >
-        <MenuItem
-          key="View-invoice"
-          sx={{
-            color: 'primary.main',
-          }}
-          onClick={() =>
-            handleViewInvoice(row.status !== 2 && invoicePayPermission && purchasabilityPermission)
-          }
-        >
+        <MenuItem onClick={() =>
+          handleViewInvoice(row.status !== 2 && invoicePayPermission && purchasabilityPermission)
+        }>
           {b3Lang('invoice.actions.viewInvoice')}
         </MenuItem>
+
         {isCanViewOrder && (
-          <MenuItem
-            key="View-Order"
-            sx={{
-              color: 'primary.main',
-            }}
-            onClick={handleViewOrder}
-          >
+          <MenuItem onClick={handleViewOrder}>
             {b3Lang('invoice.actions.viewOrder')}
           </MenuItem>
         )}
 
         {row.status !== 0 && (
-          <MenuItem
-            key="View-payment-history"
-            sx={{
-              color: 'primary.main',
-            }}
-            onClick={viewPaymentHistory}
-          >
+          <MenuItem onClick={viewPaymentHistory}>
             {b3Lang('invoice.actions.viewPaymentHistory')}
           </MenuItem>
         )}
+
         {isPay && (
-          <MenuItem
-            key="Pay"
-            sx={{
-              color: 'primary.main',
-            }}
-            onClick={handlePay}
-          >
+          <MenuItem onClick={handlePay}>
             {b3Lang('invoice.actions.pay')}
           </MenuItem>
         )}
-        <MenuItem
-          key="Print"
-          sx={{
-            color: 'primary.main',
-          }}
-          onClick={() =>
-            handleViewInvoice(row.status !== 2 && invoicePayPermission && purchasabilityPermission)
-          }
-        >
+
+        <MenuItem onClick={() =>
+          handleViewInvoice(row.status !== 2 && invoicePayPermission && purchasabilityPermission)
+        }>
           {b3Lang('invoice.actions.print')}
         </MenuItem>
-        <MenuItem
-          key="Download"
-          sx={{
-            color: 'primary.main',
-          }}
-          onClick={() => handleDownloadPDF()}
-        >
+
+        <MenuItem onClick={handleDownloadPDF}>
           {b3Lang('invoice.actions.download')}
         </MenuItem>
       </StyledMenu>

@@ -15,7 +15,7 @@ import { getVariantInfoBySkus, searchProducts } from '@/shared/service/b2b/graph
 import { deleteCart, getCart } from '@/shared/service/bc/graphql/cart';
 import { rolePermissionSelector, useAppSelector } from '@/store';
 import { ShoppingListStatus } from '@/types/shoppingList';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
+import { currencyFormat, snackbar } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
 import {
   addQuoteDraftProducts,
@@ -27,7 +27,6 @@ import {
   conversionProductsList,
   ProductsProps,
 } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart, deleteCartData, updateCart } from '@/utils/cartUtils';
 import { validateProducts } from '@/utils/validateProducts';
@@ -37,6 +36,7 @@ interface ShoppingDetailFooterProps {
   allowJuniorPlaceOrder: boolean;
   checkedArr: any;
   selectedSubTotal: number;
+  isEpicorSubtotalLoading?: boolean;
   setLoading: (val: boolean) => void;
   setDeleteOpen: (val: boolean) => void;
   setValidateFailureProducts: (arr: ProductsProps[]) => void;
@@ -121,6 +121,7 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
     allowJuniorPlaceOrder,
     checkedArr,
     selectedSubTotal,
+    isEpicorSubtotalLoading = false,
     setLoading,
     setDeleteOpen,
     setValidateFailureProducts,
@@ -658,7 +659,9 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
               }}
             >
               {b3Lang('shoppingList.footer.subtotal', {
-                subtotal: currencyFormat(selectedSubTotal),
+                subtotal: isB2BUser && isEpicorSubtotalLoading
+                  ? 'Loading...'
+                  : currencyFormat(selectedSubTotal),
               })}
             </Typography>
             <Box

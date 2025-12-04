@@ -14,8 +14,7 @@ import {
   Variant,
 } from '@/types/products';
 import { QuoteItem } from '@/types/quotes';
-import { channelId, storeHash } from '@/utils/basicConfig';
-import { getActiveCurrencyInfo } from '@/utils/currencyUtils';
+import { channelId, getActiveCurrencyInfo, storeHash } from '@/utils';
 
 import b2bLogger from '../b3Logger';
 import { FeatureFlags } from '../featureFlags';

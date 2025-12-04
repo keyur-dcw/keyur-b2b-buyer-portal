@@ -1,15 +1,9 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { lazy, useContext, useEffect, useMemo, useState } from 'react';
 import { HashRouter } from 'react-router-dom';
 
-import B3GlobalTip from '@/components/B3GlobalTip';
+import { usePageMask } from '@/components';
 import GlobalDialog from '@/components/extraTip/GlobalDialog';
 import B3RenderRouter from '@/components/layout/B3RenderRouter';
-import { usePageMask } from '@/components/loading';
-import B3CompanyHierarchyExternalButton from '@/components/outSideComponents/B3CompanyHierarchyExternalButton';
-import B3HoverButton from '@/components/outSideComponents/B3HoverButton';
-import B3MasqueradeGlobalTip from '@/components/outSideComponents/B3MasqueradeGlobalTip';
-import { ThemeFrame } from '@/components/ThemeFrame';
-import HeadlessController from '@/HeadlessController';
 import useDomHooks from '@/hooks/dom/useDomHooks';
 import { useB3AppOpen } from '@/hooks/useB3AppOpen';
 import { useSetOpen } from '@/hooks/useSetOpen';
@@ -17,16 +11,18 @@ import { CustomStyleContext } from '@/shared/customStyleButton';
 import { GlobalContext } from '@/shared/global';
 import { gotoAllowedAppPage } from '@/shared/routes';
 import { setChannelStoreType } from '@/shared/service/b2b';
-import { openPageByClick, removeBCMenus } from '@/utils/b3AccountItem';
-import { handleHideRegisterPage } from '@/utils/b3HideRegister';
-import { hideStorefrontElement } from '@/utils/b3HideStorefrontElement';
-import { getQuoteEnabled } from '@/utils/b3Init';
+import {
+  getQuoteEnabled,
+  handleHideRegisterPage,
+  hideStorefrontElement,
+  openPageByClick,
+  removeBCMenus,
+} from '@/utils';
 
 import { b2bJumpPath } from './utils/b3CheckPermissions/b2bPermissionPath';
 import clearInvoiceCart from './utils/b3ClearCart';
 import b2bLogger from './utils/b3Logger';
 import { isUserGotoLogin } from './utils/b3logout';
-import { isCompanyError } from './utils/companyUtils';
 import { getCompanyInfo, getCurrentCustomerInfo, loginInfo } from './utils/loginInfo';
 import { getGlobalStoreTax, getStoreConfigs, setStorefrontConfig } from './utils/storefrontConfig';
 import { CHECKOUT_URL, PATH_ROUTES } from './constants';
@@ -38,6 +34,22 @@ import {
   useAppDispatch,
   useAppSelector,
 } from './store';
+
+const B3GlobalTip = lazy(() => import('@/components/B3GlobalTip'));
+
+const B3HoverButton = lazy(() => import('@/components/outSideComponents/B3HoverButton'));
+
+const B3MasqueradeGlobalTip = lazy(
+  () => import('@/components/outSideComponents/B3MasqueradeGlobalTip'),
+);
+
+const B3CompanyHierarchyExternalButton = lazy(
+  () => import('@/components/outSideComponents/B3CompanyHierarchyExternalButton'),
+);
+
+const HeadlessController = lazy(() => import('@/HeadlessController'));
+
+const ThemeFrame = lazy(() => import('@/components/ThemeFrame'));
 
 const FONT_URL = 'https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap';
 
@@ -183,11 +195,7 @@ export default function App() {
       };
 
       if (!customerId) {
-        const info = await getCurrentCustomerInfo().catch((error) => {
-          if (isCompanyError(error)) {
-            gotoPage(`/login?loginFlag=${error.reason}`);
-          }
-        });
+        const info = await getCurrentCustomerInfo();
         if (info) {
           userInfo.role = info?.role;
         }

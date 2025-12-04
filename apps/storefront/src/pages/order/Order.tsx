@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 
+import { B2BAutoCompleteCheckbox } from '@/components';
 import B3Filter from '@/components/filter/B3Filter';
 import B3Spin from '@/components/spin/B3Spin';
-import { B2BAutoCompleteCheckbox } from '@/components/ui/B2BAutoCompleteCheckbox';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import { isB2BUserSelector, useAppSelector } from '@/store';
 import { CustomerRole } from '@/types';
-import { currencyFormat, ordersCurrencyFormat } from '@/utils/b3CurrencyFormat';
-import { displayFormat } from '@/utils/b3DateFormat';
+import { currencyFormat, displayFormat, ordersCurrencyFormat } from '@/utils';
+import { getBigCommerceOrderMetaFields } from '@/shared/service/b2b/graphql/bigcommerceOrderMeta';
 
 import OrderStatus from './components/OrderStatus';
 import { orderStatusTranslationVariables } from './shared/getOrderStatus';
@@ -57,6 +57,8 @@ interface ListItem {
   createdAt: string;
   companyName: string;
   companyInfo?: CompanyInfoProps;
+  epicorErpOrderNumber?: string;
+  isLoadingEpicorNumber?: boolean;
 }
 
 interface SearchChangeProps {
@@ -260,7 +262,24 @@ function Order({ isCompanyOrder = false }: OrderProps) {
       title: b3Lang('orders.order'),
       width: '10%',
       isSortable: true,
-      render: ({ orderId }) => orderId,
+      render: ({ orderId, epicorErpOrderNumber, isLoadingEpicorNumber }) => {
+        // Show loading spinner while fetching Epicor order number
+        if (isLoadingEpicorNumber === true) {
+          return (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <CircularProgress size={16} />
+            </Box>
+          );
+        }
+        // Show Epicor order number if available, otherwise show original BigCommerce order ID
+        return <Box>{epicorErpOrderNumber || orderId}</Box>;
+      },
     },
     {
       key: 'companyName',
@@ -375,6 +394,102 @@ function Order({ isCompanyOrder = false }: OrderProps) {
     queryFn: () => fetchList({ ...filterData, ...pagination, orderBy: getOrderBy(orderBy) }),
   });
 
+  // State to store EpicorErpOrderNumber for each order
+  const [epicorOrderNumbers, setEpicorOrderNumbers] = useState<Record<string, string>>({});
+  const [loadingEpicorNumbers, setLoadingEpicorNumbers] = useState<Record<string, boolean>>({});
+
+  // Fetch EpicorErpOrderNumber for each order
+  useEffect(() => {
+    if (!data?.edges || data.edges.length === 0) {
+      setLoadingEpicorNumbers({});
+      return;
+    }
+
+    const fetchEpicorNumbers = async () => {
+      const orderIds = data.edges.map((order) => order.orderId);
+      const ordersToFetch: string[] = [];
+      const initialLoadingState: Record<string, boolean> = {};
+
+      // Identify orders that need to be fetched
+      orderIds.forEach((orderId) => {
+        if (!epicorOrderNumbers[orderId]) {
+          ordersToFetch.push(orderId);
+          initialLoadingState[orderId] = true;
+        }
+      });
+
+      // Set loading state immediately
+      if (ordersToFetch.length > 0) {
+        setLoadingEpicorNumbers((prev) => ({ ...prev, ...initialLoadingState }));
+
+        // Fetch EpicorErpOrderNumber for each order
+        try {
+          const results = await Promise.all(
+            ordersToFetch.map(async (orderId) => {
+              try {
+                const integrationInfo = await getBigCommerceOrderMetaFields(orderId);
+                return {
+                  orderId,
+                  epicorNumber: integrationInfo?.EpicorErpOrderNumber || null,
+                };
+              } catch (error) {
+                console.error(`Error fetching Epicor number for order ${orderId}:`, error);
+                return { orderId, epicorNumber: null };
+              }
+            }),
+          );
+
+          // Update state with fetched values
+          const newEpicorNumbers: Record<string, string> = {};
+          const newLoadingState: Record<string, boolean> = {};
+
+          results.forEach(({ orderId, epicorNumber }) => {
+            if (epicorNumber) {
+              newEpicorNumbers[orderId] = epicorNumber;
+            }
+            newLoadingState[orderId] = false;
+          });
+
+          setEpicorOrderNumbers((prev) => ({ ...prev, ...newEpicorNumbers }));
+          setLoadingEpicorNumbers((prev) => {
+            const updated = { ...prev };
+            Object.keys(newLoadingState).forEach((id) => {
+              updated[id] = false;
+            });
+            return updated;
+          });
+        } catch (error) {
+          console.error('Error fetching Epicor numbers:', error);
+          // Set loading to false for all orders on error
+          setLoadingEpicorNumbers((prev) => {
+            const updated = { ...prev };
+            ordersToFetch.forEach((id) => {
+              updated[id] = false;
+            });
+            return updated;
+          });
+        }
+      }
+    };
+
+    fetchEpicorNumbers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.edges]);
+
+  // Merge EpicorErpOrderNumber into order data - KEEP ORIGINAL orderId UNCHANGED
+  const ordersWithEpicorNumber = useMemo(() => {
+    if (!data?.edges) return [];
+
+    return data.edges.map((order) => ({
+      ...order,
+      // IMPORTANT: Keep original orderId unchanged
+      orderId: order.orderId,
+      // Add Epicor order number and loading state
+      epicorErpOrderNumber: epicorOrderNumbers[order.orderId] || undefined,
+      isLoadingEpicorNumber: loadingEpicorNumbers[order.orderId] === true,
+    }));
+  }, [data?.edges, epicorOrderNumbers, loadingEpicorNumbers]);
+
   return (
     <B3Spin isSpinning={isFetching}>
       <Box
@@ -427,7 +542,7 @@ function Order({ isCompanyOrder = false }: OrderProps) {
 
         <B3Table
           columnItems={columnItems}
-          listItems={data?.edges || []}
+          listItems={ordersWithEpicorNumber}
           pagination={{ ...pagination, count: data?.totalCount || 0 }}
           onPaginationChange={setPagination}
           isInfiniteScroll={isMobile}

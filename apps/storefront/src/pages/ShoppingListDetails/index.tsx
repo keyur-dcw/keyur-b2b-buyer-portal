@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Grid, useTheme } from '@mui/material';
 
 import B3Spin from '@/components/spin/B3Spin';
+import { useEpicorSubtotal } from '@/hooks/useEpicorSubtotal';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
@@ -25,9 +26,10 @@ import {
 } from '@/store';
 import { CustomerRole } from '@/types/company';
 import { ShoppingListStatus } from '@/types/shoppingList';
+import { channelId, snackbar } from '@/utils';
 import { verifyLevelPermission } from '@/utils/b3CheckPermissions/check';
 import { b2bPermissionsMap } from '@/utils/b3CheckPermissions/config';
-import { calculateProductListPrice, getBCPrice } from '@/utils/b3Product/b3Product';
+import { calculateProductListPrice } from '@/utils/b3Product/b3Product';
 import {
   conversionProductsList,
   CustomerInfoProps,
@@ -36,8 +38,6 @@ import {
   SearchProps,
   ShoppingListInfoProps,
 } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
-import { channelId } from '@/utils/basicConfig';
 
 import { type PageProps } from '../PageProps';
 
@@ -64,24 +64,7 @@ interface UpdateShoppingListParamsProps {
   channelId?: number;
 }
 
-const calculateSubTotal = (checkedArr: CustomFieldItems) => {
-  if (checkedArr.length > 0) {
-    let total = 0.0;
-
-    checkedArr.forEach((item: ListItemProps) => {
-      const {
-        node: { quantity, basePrice, taxPrice },
-      } = item;
-
-      const price = getBCPrice(Number(basePrice), Number(taxPrice));
-
-      total += price * Number(quantity);
-    });
-
-    return (1000 * total) / 1000;
-  }
-  return 0.0;
-};
+// Subtotal calculation is now handled by useEpicorSubtotal hook
 
 function useData() {
   const { id = '' } = useParams();
@@ -173,7 +156,7 @@ function ShoppingListDetails({ setOpenPage }: PageProps) {
   const backendValidationEnabled =
     featureFlags['B2B-3318.move_stock_and_backorder_validation_to_backend'] ?? false;
 
-  const [checkedArr, setCheckedArr] = useState<CustomFieldItems>([]);
+  const [checkedArr, setCheckedArr] = useState<ListItemProps[]>([]);
   const [shoppingListInfo, setShoppingListInfo] = useState<null | ShoppingListInfoProps>(null);
   const [customerInfo, setCustomerInfo] = useState<null | CustomerInfoProps>(null);
   const [isRequestLoading, setIsRequestLoading] = useState(false);
@@ -186,6 +169,12 @@ function ShoppingListDetails({ setOpenPage }: PageProps) {
 
   const [allowJuniorPlaceOrder, setAllowJuniorPlaceOrder] = useState<boolean>(false);
   const [isCanEditShoppingList, setIsCanEditShoppingList] = useState<boolean>(true);
+
+  // Use Epicor subtotal hook for selected products
+  const { subtotal: selectedSubTotal, isLoading: isEpicorSubtotalLoading } = useEpicorSubtotal({
+    checkedArr: checkedArr as any,
+    enabled: isB2BUser,
+  });
 
   const b2bAndBcShoppingListActionsPermissions = isB2BUser
     ? shoppingListCreateActionsPermission && isCanEditShoppingList
@@ -521,7 +510,8 @@ function ShoppingListDetails({ setOpenPage }: PageProps) {
               shoppingListInfo={shoppingListInfo}
               allowJuniorPlaceOrder={allowJuniorPlaceOrder}
               checkedArr={checkedArr}
-              selectedSubTotal={calculateSubTotal(checkedArr)}
+              selectedSubTotal={selectedSubTotal}
+              isEpicorSubtotalLoading={isEpicorSubtotalLoading}
               setLoading={setIsRequestLoading}
               setDeleteOpen={setDeleteOpen}
               setValidateFailureProducts={setValidateFailureProducts}

@@ -3,8 +3,8 @@ import styled from '@emotion/styled';
 import { Delete } from '@mui/icons-material';
 import { Alert, Box, Grid, Typography } from '@mui/material';
 
+import { B3QuantityTextField } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
-import { B3QuantityTextField } from '@/components/B3QuantityTextField';
 import CustomButton from '@/components/button/CustomButton';
 import B3Spin from '@/components/spin/B3Spin';
 import { CART_URL, CHECKOUT_URL, PRODUCT_DEFAULT_IMAGE } from '@/constants';
@@ -12,14 +12,13 @@ import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import { activeCurrencyInfoSelector, rolePermissionSelector, useAppSelector } from '@/store';
 import { ShoppingListStatus } from '@/types/shoppingList';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
+import { currencyFormat, snackbar } from '@/utils';
 import { setModifierQtyPrice } from '@/utils/b3Product/b3Product';
 import {
   addLineItems,
   getProductOptionsFields,
   ProductsProps,
 } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
 

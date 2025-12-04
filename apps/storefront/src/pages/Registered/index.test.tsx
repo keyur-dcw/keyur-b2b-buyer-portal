@@ -15,7 +15,7 @@ import {
 } from '@/shared/service/b2b';
 import { getStorefrontToken } from '@/shared/service/b2b/graphql/recaptcha';
 import { bcLogin } from '@/shared/service/bc';
-import { B3SStorage } from '@/utils/b3Storage';
+import { B3SStorage } from '@/utils';
 import { getCurrentCustomerInfo } from '@/utils/loginInfo';
 
 import { RegisteredProvider } from './context/RegisteredContext';

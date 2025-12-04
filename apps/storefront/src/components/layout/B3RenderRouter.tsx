@@ -1,18 +1,20 @@
-import { Suspense, useContext, useEffect } from 'react';
+import { lazy, Suspense, useContext, useEffect } from 'react';
 import { Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
-import B3Layout from '@/components/layout/B3Layout';
-import B3LayoutTip from '@/components/layout/B3LayoutTip';
 import { type SetOpenPage } from '@/pages/SetOpenPage';
 import { GlobalContext } from '@/shared/global';
 import { RouteItem } from '@/shared/routeList';
 import { firstLevelRouting, getAllowedRoutes } from '@/shared/routes';
 import { getPageTranslations, useAppDispatch } from '@/store';
-import { channelId } from '@/utils/basicConfig';
+import { channelId } from '@/utils';
 
 import Loading from '../loading/Loading';
 
 import { RedirectFallback } from './B3FallbackRoute';
+
+const B3Layout = lazy(() => import('@/components/layout/B3Layout'));
+
+const B3LayoutTip = lazy(() => import('@/components/layout/B3LayoutTip'));
 
 interface B3RenderRouterProps {
   setOpenPage: SetOpenPage;

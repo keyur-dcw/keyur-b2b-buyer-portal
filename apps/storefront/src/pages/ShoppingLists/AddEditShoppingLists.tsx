@@ -1,13 +1,12 @@
 import { forwardRef, Ref, useEffect, useImperativeHandle, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
-import { B3CustomForm } from '@/components/B3CustomForm';
+import { B3CustomForm } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
 import { useB3Lang } from '@/lib/lang';
 import { rolePermissionSelector, useAppSelector } from '@/store';
 import { ShoppingListStatus } from '@/types/shoppingList';
-import { snackbar } from '@/utils/b3Tip';
-import { channelId } from '@/utils/basicConfig';
+import { channelId, snackbar } from '@/utils';
 
 import {
   getCreatedShoppingListFiles,

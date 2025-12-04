@@ -8,9 +8,10 @@ import { useBlockPendingAccountViewPrice } from '@/hooks/useBlockPendingAccountV
 import { useB3Lang } from '@/lib/lang';
 import { searchProducts } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
+import { snackbar } from '@/utils';
 import { calculateProductListPrice } from '@/utils/b3Product/b3Product';
 import { conversionProductsList } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
+import { isProductShowPriceEnabled } from '@/utils/productShowPrice';
 
 import { ShoppingListProductItem } from '../../../types';
 
@@ -39,6 +40,38 @@ export default function SearchProduct({ addToList }: SearchProductProps) {
 
   const [blockPendingAccountViewPrice] = useBlockPendingAccountViewPrice();
 
+  const filterProductsByShowPrice = async (
+    products: ShoppingListProductItem[],
+  ): Promise<ShoppingListProductItem[]> => {
+    if (!products.length) {
+      return products;
+    }
+
+    const checks = await Promise.all(
+      products.map((product) => isProductShowPriceEnabled(product.id)),
+    );
+    const allowed: ShoppingListProductItem[] = [];
+    const blockedSkus: string[] = [];
+
+    products.forEach((product, index) => {
+      if (checks[index]) {
+        allowed.push(product);
+      } else {
+        blockedSkus.push(product.sku || product.name || `${product.id}`);
+      }
+    });
+
+    if (blockedSkus.length > 0) {
+      snackbar.error(
+        b3Lang('purchasedProducts.quickOrderPad.showPriceDisabled', {
+          skus: blockedSkus.join(', '),
+        }),
+      );
+    }
+
+    return allowed;
+  };
+
   const handleSearchTextChange = (e: ChangeEvent<HTMLInputElement>) => {
     setSearchText(e.target.value);
   };
@@ -63,9 +96,15 @@ export default function SearchProduct({ addToList }: SearchProductProps) {
       });
 
       const product = conversionProductsList(productsSearch);
+      const allowedProducts = await filterProductsByShowPrice(product);
 
-      setProductList(product);
-      setProductListOpen(true);
+      if (allowedProducts.length > 0) {
+        setProductList(allowedProducts);
+        setProductListOpen(true);
+      } else {
+        setProductList([]);
+        setProductListOpen(false);
+      }
     } finally {
       setIsLoading(false);
     }

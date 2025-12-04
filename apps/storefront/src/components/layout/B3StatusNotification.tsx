@@ -8,7 +8,7 @@ import { useB3Lang } from '@/lib/lang';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { setLoginType } from '@/store/slices/company';
 import { LoginTypes } from '@/types';
-import { B3SStorage } from '@/utils/b3Storage';
+import { B3SStorage } from '@/utils';
 
 type AlertColor = 'success' | 'info' | 'warning' | 'error';
 

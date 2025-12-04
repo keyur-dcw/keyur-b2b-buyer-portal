@@ -3,18 +3,17 @@ import { UploadFile as UploadFileIcon } from '@mui/icons-material';
 import { Box, Card, CardContent, Divider } from '@mui/material';
 import { v1 as uuid } from 'uuid';
 
-import { B3CollapseContainer } from '@/components/B3CollapseContainer';
+import { B3CollapseContainer, B3Upload } from '@/components';
 import CustomButton from '@/components/button/CustomButton';
-import { B3Upload } from '@/components/upload/B3Upload';
 import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
 import { useBlockPendingAccountViewPrice } from '@/hooks/useBlockPendingAccountViewPrice';
 import { useB3Lang } from '@/lib/lang';
 import { searchProducts } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
+import { snackbar } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
 import { calculateProductListPrice, validProductQty } from '@/utils/b3Product/b3Product';
 import { conversionProductsList } from '@/utils/b3Product/shared/config';
-import { snackbar } from '@/utils/b3Tip';
 
 import QuickAdd from '../../ShoppingListDetails/components/QuickAdd';
 import SearchProduct from '../../ShoppingListDetails/components/SearchProduct';

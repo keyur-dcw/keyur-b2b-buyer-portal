@@ -136,12 +136,13 @@ declare global {
     currencyExchangeRate: string;
   }
 
-  declare interface Window {
+  declare   interface Window {
     b2b: {
       callbacks: {
         dispatchEvent: (callbackKey: EventType, data?: Record<string, any>) => boolean;
       };
       isInit: boolean;
     };
+    STOREFRONT_GRAPHQL_API_TOKEN?: string;
   }
 }

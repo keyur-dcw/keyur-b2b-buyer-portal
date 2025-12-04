@@ -7,8 +7,10 @@ import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import { useAppSelector } from '@/store';
-import { currencyFormat, ordersCurrencyFormat } from '@/utils/b3CurrencyFormat';
+import { currencyFormat, ordersCurrencyFormat } from '@/utils';
 import { getDisplayPrice, judgmentBuyerProduct } from '@/utils/b3Product/b3Product';
+
+import { ProductPriceWithEpicor } from './ProductPriceWithEpicor';
 
 import { MoneyFormat, ProductItem } from '../types';
 
@@ -127,7 +129,7 @@ interface ProductProps<T> {
   getCurrentProductUrls?: (productId: number | undefined) => void;
 }
 
-export function B3ProductList<T>(props: ProductProps<T>) {
+export default function B3ProductList<T>(props: ProductProps<T>) {
   const {
     products,
     renderAction,
@@ -308,7 +310,6 @@ export function B3ProductList<T>(props: ProductProps<T>) {
         }
 
         const totalPrice = getProductTotals(quantity, productPrice);
-
         const discountedPrice = Number(productPrice) - Number(discountAccountForSingleProduct);
         const discountedTotalPrice = getProductTotals(quantity, discountedPrice);
 
@@ -322,7 +323,7 @@ export function B3ProductList<T>(props: ProductProps<T>) {
 
         const renderPrice = (
           priceLabel: string,
-          priceValue: number,
+          _priceValue: number,
           priceDiscountedValue: number,
         ) => {
           return (
@@ -354,7 +355,18 @@ export function B3ProductList<T>(props: ProductProps<T>) {
                   }}
                 >
                   {isMobile && <span>{priceLabel}: </span>}
-                  <span id="product-price">{getDisplayPrice(priceValue)}</span>
+                  <span id="product-price">
+                    <ProductPriceWithEpicor
+                      product={product}
+                      quantity={quantity}
+                      basePrice={productPrice}
+                      discountedPrice={discountedPrice}
+                      money={money}
+                      priceLabel=""
+                      showLoading={true}
+                      isMobile={false}
+                    />
+                  </span>
                 </Box>
                 {discountAccountForSingleProduct > 0 ? (
                   <Box

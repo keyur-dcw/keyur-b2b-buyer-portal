@@ -1,5 +1,4 @@
-import { platform } from '@/utils/basicConfig';
-import { convertObjectOrArrayKeysToCamel } from '@/utils/graphqlDataConvert';
+import { convertObjectOrArrayKeysToCamel, platform } from '@/utils';
 
 import B3Request from '../../request/b3Fetch';
 

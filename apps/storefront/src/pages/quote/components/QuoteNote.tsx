@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useState } from 'react';
 import { Box, Card, CardContent, TextField, Typography } from '@mui/material';
 
-import { B3CollapseContainer } from '@/components/B3CollapseContainer';
+import { B3CollapseContainer } from '@/components';
 import { useB3Lang } from '@/lib/lang';
 import {
   isB2BUserSelector,

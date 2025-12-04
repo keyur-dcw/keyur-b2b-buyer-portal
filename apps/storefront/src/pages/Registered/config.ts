@@ -3,8 +3,7 @@ import { format } from 'date-fns/format';
 
 import { LangFormatFunction } from '@/lib/lang';
 import { validateAddressExtraFields, validateBCCompanyExtraFields } from '@/shared/service/b2b';
-import { getLineNumber } from '@/utils/b3GetTextLenPX';
-import { validatorRules } from '@/utils/validatorRules';
+import { getLineNumber, validatorRules } from '@/utils';
 
 import { RegisterFields } from './types';
 

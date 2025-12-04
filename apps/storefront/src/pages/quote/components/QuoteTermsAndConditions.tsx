@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Box, Card, CardContent, Typography } from '@mui/material';
 
-import { B3CollapseContainer } from '@/components/B3CollapseContainer';
+import { B3CollapseContainer } from '@/components';
 import { useB3Lang } from '@/lib/lang';
 
 interface QuoteTermsAndConditionsProps {

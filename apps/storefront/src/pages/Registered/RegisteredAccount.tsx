@@ -2,7 +2,7 @@ import { ChangeEvent, MouseEvent, useContext, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Alert, Box, FormControl, FormControlLabel, Radio, RadioGroup } from '@mui/material';
 
-import { B3CustomForm } from '@/components/B3CustomForm';
+import { B3CustomForm } from '@/components';
 import { b3HexToRgb, getContrastColor } from '@/components/outSideComponents/utils/b3CustomStyles';
 import { useB3Lang } from '@/lib/lang';
 import { CustomStyleContext } from '@/shared/customStyleButton';
@@ -12,8 +12,8 @@ import {
   validateBCCompanyUserExtraFields,
 } from '@/shared/service/b2b';
 import { themeFrameSelector, useAppSelector } from '@/store';
+import { channelId } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
-import { channelId } from '@/utils/basicConfig';
 
 import { RegisteredContext } from './context/RegisteredContext';
 import { Base64, emailError } from './config';

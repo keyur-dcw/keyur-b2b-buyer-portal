@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Box } from '@mui/material';
 import trim from 'lodash-es/trim';
 
-import { B3CustomForm } from '@/components/B3CustomForm';
+import { B3CustomForm } from '@/components';
 import CustomButton from '@/components/button/CustomButton';
 import { b3HexToRgb, getContrastColor } from '@/components/outSideComponents/utils/b3CustomStyles';
 import B3Spin from '@/components/spin/B3Spin';
@@ -24,9 +24,7 @@ import {
 import { isB2BUserSelector, useAppSelector } from '@/store';
 import { CustomerRole, UserTypes } from '@/types';
 import { Fields, ParamProps } from '@/types/accountSetting';
-import { B3SStorage } from '@/utils/b3Storage';
-import { snackbar } from '@/utils/b3Tip';
-import { channelId, platform } from '@/utils/basicConfig';
+import { B3SStorage, channelId, platform, snackbar } from '@/utils';
 
 import { deCodeField, getAccountFormFields } from '../Registered/config';
 

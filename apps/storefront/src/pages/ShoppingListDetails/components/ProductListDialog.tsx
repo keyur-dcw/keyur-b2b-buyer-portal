@@ -2,14 +2,14 @@ import { ChangeEvent, KeyboardEvent, useCallback, useContext } from 'react';
 import { Search as SearchIcon } from '@mui/icons-material';
 import { Box, InputAdornment, TextField, Typography } from '@mui/material';
 
+import { B3ProductList } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
-import { B3ProductList } from '@/components/B3ProductList';
 import CustomButton from '@/components/button/CustomButton';
 import B3Spin from '@/components/spin/B3Spin';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import { useAppSelector } from '@/store';
-import { snackbar } from '@/utils/b3Tip';
+import { snackbar } from '@/utils';
 
 import { ShoppingListProductItem } from '../../../types';
 import { ShoppingListDetailsContext } from '../context/ShoppingListDetailsContext';

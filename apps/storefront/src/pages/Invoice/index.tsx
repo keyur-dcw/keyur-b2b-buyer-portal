@@ -3,26 +3,31 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Box, Button, InputAdornment, TextField, Typography } from '@mui/material';
 import cloneDeep from 'lodash-es/cloneDeep';
 
+import { B2BAutoCompleteCheckbox } from '@/components';
 import B3Spin from '@/components/spin/B3Spin';
 import { B3PaginationTable, GetRequestList } from '@/components/table/B3PaginationTable';
 import { TableColumnItem } from '@/components/table/B3Table';
-import { B2BAutoCompleteCheckbox } from '@/components/ui/B2BAutoCompleteCheckbox';
 import { permissionLevels } from '@/constants';
 import { useMobile } from '@/hooks/useMobile';
 import { useSort } from '@/hooks/useSort';
 import { useB3Lang } from '@/lib/lang';
 import { GlobalContext } from '@/shared/global';
 import { exportInvoicesAsCSV, getInvoiceList, getInvoiceStats } from '@/shared/service/b2b';
+import { getBigCommerceOrderMetaFields } from '@/shared/service/b2b/graphql/bigcommerceOrderMeta';
 import { rolePermissionSelector, useAppSelector } from '@/store';
 import { CustomerRole } from '@/types';
 import { InvoiceList, InvoiceListNode } from '@/types/invoice';
+import {
+  currencyFormat,
+  currencyFormatInfo,
+  displayFormat,
+  getUTCTimestamp,
+  handleGetCorrespondingCurrencyToken,
+  snackbar,
+} from '@/utils';
 import { validatePermissionWithComparisonType } from '@/utils/b3CheckPermissions/check';
 import { b2bPermissionsMap } from '@/utils/b3CheckPermissions/config';
-import { currencyFormat, currencyFormatInfo } from '@/utils/b3CurrencyFormat';
-import { displayFormat, getUTCTimestamp } from '@/utils/b3DateFormat';
 import b2bLogger from '@/utils/b3Logger';
-import { snackbar } from '@/utils/b3Tip';
-import { handleGetCorrespondingCurrencyToken } from '@/utils/currencyUtils';
 
 import B3Filter from '../../components/filter/B3Filter';
 
@@ -136,6 +141,10 @@ function Invoice() {
   const [filterChangeFlag, setFilterChangeFlag] = useState(false);
   const [filterLists, setFilterLists] = useState<InvoiceListNode[]>([]);
   const [selectAllPay, setSelectAllPay] = useState<boolean>(invoicePayPermission);
+
+  // State to store EpicorErpOrderNumber for each invoice order
+  const [epicorOrderNumbers, setEpicorOrderNumbers] = useState<Record<string, string>>({});
+  const [loadingEpicorNumbers, setLoadingEpicorNumbers] = useState<Record<string, boolean>>({});
 
   const invoiceSubPayPermission = validatePermissionWithComparisonType({
     level: permissionLevels.COMPANY_SUBSIDIARIES,
@@ -272,6 +281,7 @@ function Invoice() {
     id: string,
     status: string | number,
     invoiceCompanyId: string,
+    orderNumber?: string,
   ) => {
     try {
       const invoicePay =
@@ -280,7 +290,23 @@ function Invoice() {
           : invoiceSubPayPermission;
       setIsRequestLoading(true);
       const isPayNow = purchasabilityPermission && invoicePay && status !== 2;
-      const pdfUrl = await handlePrintPDF(id, isPayNow);
+
+      // Get Epicor order number if available
+      let epicorOrderNumber: string | null = null;
+      if (orderNumber) {
+        epicorOrderNumber = epicorOrderNumbers[orderNumber] || null;
+        // If not in cache, try to fetch it
+        if (!epicorOrderNumber) {
+          try {
+            const integrationInfo = await getBigCommerceOrderMetaFields(orderNumber);
+            epicorOrderNumber = integrationInfo?.EpicorErpOrderNumber || null;
+          } catch (error) {
+            b2bLogger.error('Error fetching Epicor order number:', error);
+          }
+        }
+      }
+
+      const pdfUrl = await handlePrintPDF(id, isPayNow, orderNumber, epicorOrderNumber);
 
       if (!pdfUrl) {
         snackbar.error(b3Lang('invoice.pdfUrlResolutionError'));
@@ -370,7 +396,153 @@ function Invoice() {
       });
 
       if (invoicesExport?.url) {
-        window.open(invoicesExport?.url, '_blank');
+        // Fetch the CSV and replace Order IDs with Epicor Order IDs
+        try {
+          const csvResponse = await fetch(invoicesExport.url);
+          const csvText = await csvResponse.text();
+
+          // Parse CSV to extract Order IDs and create mapping
+          const parseCSVLine = (line: string): string[] => {
+            const result: string[] = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+              const char = line[i];
+              const nextChar = line[i + 1];
+
+              if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                  current += '"';
+                  i++;
+                } else {
+                  inQuotes = !inQuotes;
+                }
+              } else if (char === ',' && !inQuotes) {
+                result.push(current.trim());
+                current = '';
+              } else {
+                current += char;
+              }
+            }
+            result.push(current.trim());
+            return result;
+          };
+
+          const csvLines = csvText.split('\n').filter((line) => line.trim());
+          if (csvLines.length === 0) {
+            window.open(invoicesExport.url, '_blank');
+            return;
+          }
+
+          // Find Order ID column index
+          const headerLine = csvLines[0];
+          const headers = parseCSVLine(headerLine).map((h) => h.replace(/^"|"$/g, '').toLowerCase());
+          const orderIdColumnIndex = headers.findIndex(
+            (h) => h === 'order id' || h === 'orderid',
+          );
+
+          if (orderIdColumnIndex === -1) {
+            // Order ID column not found, use original CSV
+            window.open(invoicesExport.url, '_blank');
+            return;
+          }
+
+          // Extract all unique Order IDs from CSV
+          const orderNumbersInCSV = new Set<string>();
+          for (let i = 1; i < csvLines.length; i++) {
+            const columns = parseCSVLine(csvLines[i]);
+            if (columns[orderIdColumnIndex]) {
+              const orderId = columns[orderIdColumnIndex].replace(/^"|"$/g, '').trim();
+              if (orderId) {
+                orderNumbersInCSV.add(orderId);
+              }
+            }
+          }
+
+          // Start with cached Epicor order numbers
+          const orderIdMapping: Record<string, string> = { ...epicorOrderNumbers };
+
+          // Fetch Epicor order IDs for order numbers not in cache
+          const ordersToFetch = Array.from(orderNumbersInCSV).filter(
+            (orderId) => !orderIdMapping[orderId],
+          );
+
+          if (ordersToFetch.length > 0) {
+            const epicorResults = await Promise.all(
+              ordersToFetch.map(async (orderId) => {
+                try {
+                  const integrationInfo = await getBigCommerceOrderMetaFields(orderId);
+                  return {
+                    orderId,
+                    epicorId: integrationInfo?.EpicorErpOrderNumber || null,
+                  };
+                } catch (error) {
+                  b2bLogger.error(`Error fetching Epicor ID for order ${orderId}:`, error);
+                  return { orderId, epicorId: null };
+                }
+              }),
+            );
+
+            // Add fetched Epicor IDs to mapping
+            epicorResults.forEach(({ orderId, epicorId }) => {
+              if (epicorId) {
+                orderIdMapping[orderId] = epicorId;
+              }
+            });
+          }
+
+          // Replace Order IDs in CSV rows
+          const modifiedLines = csvLines.map((line, index) => {
+            if (index === 0) {
+              return line; // Keep header as is
+            }
+
+            if (!line.trim()) {
+              return line; // Keep empty lines
+            }
+
+            const columns = parseCSVLine(line);
+            
+            if (columns[orderIdColumnIndex]) {
+              const originalOrderIdValue = columns[orderIdColumnIndex];
+              const bigCommerceOrderId = originalOrderIdValue.replace(/^"|"$/g, '').trim();
+              const epicorOrderId = orderIdMapping[bigCommerceOrderId];
+              
+              // Replace if we have Epicor ID
+              if (epicorOrderId && epicorOrderId !== bigCommerceOrderId) {
+                // Preserve original quoting style
+                const wasQuoted = originalOrderIdValue.startsWith('"') && originalOrderIdValue.endsWith('"');
+                const newOrderIdValue = wasQuoted ? `"${epicorOrderId}"` : epicorOrderId;
+                
+                // Replace the order ID in the column
+                columns[orderIdColumnIndex] = newOrderIdValue;
+                
+                // Reconstruct the CSV line
+                return columns.join(',');
+              }
+            }
+
+            return line; // Return original if no replacement needed
+          });
+
+          // Create new CSV blob and download
+          const modifiedCsv = modifiedLines.join('\n');
+          const blob = new Blob([modifiedCsv], { type: 'text/csv;charset=utf-8;' });
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = 'invoices.csv';
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
+        } catch (csvError) {
+          b2bLogger.error('Error processing CSV with Epicor order IDs:', csvError);
+          // Fallback to opening original CSV
+          window.open(invoicesExport.url, '_blank');
+        }
       }
     } catch (err) {
       b2bLogger.error(err);
@@ -510,6 +682,9 @@ function Invoice() {
     setList(invoicesList);
     handleStatisticsInvoiceAmount();
 
+    // Fetch Epicor order numbers for invoices
+    fetchEpicorOrderNumbers(invoicesList);
+
     if (filterData && isFiltering(filterData) && invoicesList.length) {
       cacheFilterLists(invoicesList);
     } else {
@@ -545,6 +720,86 @@ function Invoice() {
     handleSetSelectedInvoiceAccount(result, id);
   };
 
+  // Fetch EpicorErpOrderNumber for each invoice's order
+  const fetchEpicorOrderNumbers = async (invoicesList: InvoiceListNode[]) => {
+    if (!invoicesList || invoicesList.length === 0) {
+      setLoadingEpicorNumbers({});
+      return;
+    }
+
+    const orderIds = invoicesList
+      .map((invoice) => invoice.node.orderNumber)
+      .filter((orderId) => orderId && !epicorOrderNumbers[orderId]);
+
+    if (orderIds.length === 0) {
+      return;
+    }
+
+    const ordersToFetch: string[] = [];
+    const initialLoadingState: Record<string, boolean> = {};
+
+    // Identify orders that need to be fetched
+    orderIds.forEach((orderId) => {
+      if (!epicorOrderNumbers[orderId]) {
+        ordersToFetch.push(orderId);
+        initialLoadingState[orderId] = true;
+      }
+    });
+
+    // Set loading state immediately
+    if (ordersToFetch.length > 0) {
+      setLoadingEpicorNumbers((prev) => ({ ...prev, ...initialLoadingState }));
+
+      // Fetch EpicorErpOrderNumber for each order
+      try {
+        const results = await Promise.all(
+          ordersToFetch.map(async (orderId) => {
+            try {
+              const integrationInfo = await getBigCommerceOrderMetaFields(orderId);
+              return {
+                orderId,
+                epicorNumber: integrationInfo?.EpicorErpOrderNumber || null,
+              };
+            } catch (error) {
+              b2bLogger.error(`Error fetching Epicor number for order ${orderId}:`, error);
+              return { orderId, epicorNumber: null };
+            }
+          }),
+        );
+
+        // Update state with fetched values
+        const newEpicorNumbers: Record<string, string> = {};
+        const newLoadingState: Record<string, boolean> = {};
+
+        results.forEach(({ orderId, epicorNumber }) => {
+          if (epicorNumber) {
+            newEpicorNumbers[orderId] = epicorNumber;
+          }
+          newLoadingState[orderId] = false;
+        });
+
+        setEpicorOrderNumbers((prev) => ({ ...prev, ...newEpicorNumbers }));
+        setLoadingEpicorNumbers((prev) => {
+          const updated = { ...prev };
+          Object.keys(newLoadingState).forEach((id) => {
+            updated[id] = false;
+          });
+          return updated;
+        });
+      } catch (error) {
+        b2bLogger.error('Error fetching Epicor numbers for invoices:', error);
+        // Set loading to false for all orders on error
+        setLoadingEpicorNumbers((prev) => {
+          const updated = { ...prev };
+          ordersToFetch.forEach((id) => {
+            updated[id] = false;
+          });
+          return updated;
+        });
+      }
+    }
+  };
+
   const columnAllItems: TableColumnItem<InvoiceList>[] = [
     {
       key: 'id',
@@ -562,7 +817,7 @@ function Invoice() {
           role="button"
           onClick={() => {
             const companyInfo = item?.companyInfo || {};
-            handleViewInvoice(item.id, item.status, companyInfo?.companyId);
+            handleViewInvoice(item.id, item.status, companyInfo?.companyId, item.orderNumber);
           }}
         >
           {item?.invoiceNumber ? item?.invoiceNumber : item?.id}
@@ -585,7 +840,12 @@ function Invoice() {
       key: 'orderNumber',
       title: b3Lang('invoice.headers.order'),
       isSortable: true,
-      render: (item: InvoiceList) => (
+      render: (item: InvoiceList) => {
+        const epicorOrderNumber = epicorOrderNumbers[item.orderNumber];
+        const displayOrderNumber = epicorOrderNumber || item?.orderNumber || '-';
+        const isLoading = loadingEpicorNumbers[item.orderNumber];
+
+        return (
         <Box
           role="button"
           sx={{
@@ -599,9 +859,10 @@ function Invoice() {
             navigate(`/orderDetail/${item.orderNumber}`);
           }}
         >
-          {item?.orderNumber || '-'}
+            {isLoading ? '...' : displayOrderNumber}
         </Box>
-      ),
+        );
+      },
       width: '12%',
     },
     {
@@ -779,6 +1040,7 @@ function Invoice() {
                 ? invoicePayPermission
                 : invoiceSubPayPermission
             }
+            epicorOrderNumbers={epicorOrderNumbers}
           />
         );
       },
@@ -951,7 +1213,9 @@ function Invoice() {
           disableCheckbox={false}
           applyAllDisableCheckbox={false}
           getSelectCheckbox={getSelectCheckbox}
-          CollapseComponent={PrintTemplate}
+          CollapseComponent={(props) => (
+            <PrintTemplate {...props} epicorOrderNumbers={epicorOrderNumbers} />
+          )}
           sortDirection={order}
           orderBy={orderBy}
           sortByFn={handleSetOrderBy}
@@ -976,6 +1240,8 @@ function Invoice() {
                   ? invoicePayPermission
                   : invoiceSubPayPermission
               }
+              epicorOrderNumbers={epicorOrderNumbers}
+              loadingEpicorNumbers={loadingEpicorNumbers}
             />
           )}
         />

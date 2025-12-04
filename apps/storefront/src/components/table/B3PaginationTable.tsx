@@ -13,8 +13,7 @@ import isEqual from 'lodash-es/isEqual';
 
 import { useMobile } from '@/hooks/useMobile';
 import { useAppSelector } from '@/store';
-import { forwardRefWithGenerics } from '@/utils/forwardRefWithGenerics';
-import { memoWithGenerics } from '@/utils/memoWithGenerics';
+import { forwardRefWithGenerics, memoWithGenerics } from '@/utils';
 
 import {
   B3Table,

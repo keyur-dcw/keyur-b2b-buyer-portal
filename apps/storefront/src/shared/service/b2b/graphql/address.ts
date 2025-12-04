@@ -1,5 +1,4 @@
-import { storeHash } from '@/utils/basicConfig';
-import { convertArrayToGraphql } from '@/utils/graphqlDataConvert';
+import { convertArrayToGraphql, storeHash } from '@/utils';
 
 import B3Request from '../../request/b3Fetch';
 

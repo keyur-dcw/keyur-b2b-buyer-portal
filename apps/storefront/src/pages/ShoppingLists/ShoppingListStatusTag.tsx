@@ -1,4 +1,4 @@
-import { B3Tag } from '@/components/B3Tag';
+import { B3Tag } from '@/components';
 import { useB3Lang } from '@/lib/lang';
 import { ShoppingListStatus } from '@/types/shoppingList';
 

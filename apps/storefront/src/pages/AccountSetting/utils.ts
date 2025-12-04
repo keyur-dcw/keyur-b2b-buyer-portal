@@ -1,5 +1,5 @@
 import { Fields, ParamProps } from '@/types/accountSetting';
-import { validatorRules } from '@/utils/validatorRules';
+import { validatorRules } from '@/utils';
 
 import { deCodeField } from '../Registered/config';
 

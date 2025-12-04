@@ -1,6 +1,5 @@
 import { QuoteExtraFieldsType } from '@/types/quotes';
-import { channelId, storeHash } from '@/utils/basicConfig';
-import { convertArrayToGraphql, convertObjectToGraphql } from '@/utils/graphqlDataConvert';
+import { channelId, convertArrayToGraphql, convertObjectToGraphql, storeHash } from '@/utils';
 
 import B3Request from '../../request/b3Fetch';
 

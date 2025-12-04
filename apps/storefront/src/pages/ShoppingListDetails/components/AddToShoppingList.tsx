@@ -2,17 +2,18 @@ import { useContext, useState } from 'react';
 import { UploadFile as UploadFileIcon } from '@mui/icons-material';
 import { Box, Card, CardContent, Divider, Typography } from '@mui/material';
 
+import { B3Upload } from '@/components';
 import CustomButton from '@/components/button/CustomButton';
-import { B3Upload } from '@/components/upload/B3Upload';
 import { dispatchEvent } from '@/hooks/useB2BCallback';
 import { useBlockPendingAccountViewPrice } from '@/hooks/useBlockPendingAccountViewPrice';
 import { useB3Lang } from '@/lib/lang';
 import { addProductToBcShoppingList, addProductToShoppingList } from '@/shared/service/b2b';
 import { useAppSelector } from '@/store';
+import { snackbar } from '@/utils';
 import { getValidOptionsList } from '@/utils/b3Product/b3Product';
-import { snackbar } from '@/utils/b3Tip';
 
 import { getAllModifierDefaultValue } from '../../../utils/b3Product/shared/config';
+import { isProductShowPriceEnabled } from '@/utils/productShowPrice';
 import { ShoppingListDetailsContext } from '../context/ShoppingListDetailsContext';
 
 import QuickAdd from './QuickAdd';
@@ -91,12 +92,14 @@ export default function AddToShoppingList(props: AddToListProps) {
     snackbar.success(b3Lang('shoppingList.addToShoppingList.productsAdded'));
   };
 
-  const getValidProducts = (products: CustomFieldItems) => {
+  const getValidProducts = async (products: CustomFieldItems[] | CustomFieldItems) => {
+    const productsArray = Array.isArray(products) ? products : [products];
     const notPurchaseSku: string[] = [];
     const productItems: CustomFieldItems[] = [];
     const notAddAble: string[] = [];
+    const notShowPrice: string[] = [];
 
-    products.forEach((item: CustomFieldItems) => {
+    for (const item of productsArray) {
       const { products: currentProduct, qty } = item;
       const { option, purchasingDisabled, variantSku, variantId, productId, modifiers } =
         currentProduct;
@@ -104,7 +107,7 @@ export default function AddToShoppingList(props: AddToListProps) {
       const defaultModifiers = getAllModifierDefaultValue(modifiers);
       if (purchasingDisabled && pageType !== 'shoppingList') {
         notPurchaseSku.push(variantSku);
-        return;
+        continue;
       }
 
       const notPassedModifier = defaultModifiers.filter(
@@ -113,13 +116,21 @@ export default function AddToShoppingList(props: AddToListProps) {
       if (notPassedModifier.length > 0) {
         notAddAble.push(variantSku);
 
-        return;
+        continue;
       }
 
       const optionsList = option.map((item: CustomFieldItems) => ({
         optionId: `attribute[${item.option_id}]`,
         optionValue: item.id.toString(),
       }));
+
+      if (pageType === 'shoppingList') {
+        const showPriceEnabled = await isProductShowPriceEnabled(productId);
+        if (!showPriceEnabled) {
+          notShowPrice.push(variantSku);
+          continue;
+        }
+      }
 
       defaultModifiers.forEach((modifier: CustomFieldItems) => {
         const { type } = modifier;
@@ -147,12 +158,13 @@ export default function AddToShoppingList(props: AddToListProps) {
         optionList: optionsList,
         products: item.products,
       });
-    });
+    }
 
     return {
       notPurchaseSku,
       productItems,
       notAddAble,
+      notShowPrice,
     };
   };
 
@@ -161,7 +173,9 @@ export default function AddToShoppingList(props: AddToListProps) {
     try {
       const { validProduct } = productsData;
 
-      const { notPurchaseSku, productItems, notAddAble } = getValidProducts(validProduct);
+      const { notPurchaseSku, productItems, notAddAble, notShowPrice } = await getValidProducts(
+        validProduct,
+      );
 
       if (productItems.length > 0) {
         await quickAddToList(productItems);
@@ -181,6 +195,14 @@ export default function AddToShoppingList(props: AddToListProps) {
         snackbar.error(
           b3Lang('shoppingList.addToShoppingList.skuNotPurchasable', {
             notPurchaseSku: notPurchaseSku.join(', '),
+          }),
+        );
+      }
+
+      if (notShowPrice.length > 0) {
+        snackbar.error(
+          b3Lang('shoppingList.addToShoppingList.showPriceDisabled', {
+            skus: notShowPrice.join(', '),
           }),
         );
       }

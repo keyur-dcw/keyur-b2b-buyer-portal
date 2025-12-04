@@ -6,8 +6,7 @@ import { Box, Card, CardContent, InputAdornment, TextField, Typography } from '@
 import { TableColumnItem } from '@/components/table/B3Table';
 import { useB3Lang } from '@/lib/lang';
 import { InvoiceList, InvoiceListNode } from '@/types/invoice';
-import { currencyFormat } from '@/utils/b3CurrencyFormat';
-import { displayFormat } from '@/utils/b3DateFormat';
+import { currencyFormat, displayFormat } from '@/utils';
 
 import B3Pulldown from './components/B3Pulldown';
 import InvoiceStatus from './components/InvoiceStatus';
@@ -16,7 +15,7 @@ interface InvoiceItemCardProps {
   item: any;
   checkBox?: (disable: boolean) => ReactElement;
   handleSetSelectedInvoiceAccount: (value: string, id: string) => void;
-  handleViewInvoice: (id: string, status: string | number, invoiceCompanyId: string) => void;
+  handleViewInvoice: (id: string, status: string | number, invoiceCompanyId: string, orderNumber?: string) => void;
   setIsRequestLoading: (bool: boolean) => void;
   setInvoiceId: (id: string) => void;
   handleOpenHistoryModal: (bool: boolean) => void;
@@ -25,6 +24,8 @@ interface InvoiceItemCardProps {
   addBottom: boolean;
   isCurrentCompany: boolean;
   invoicePay: boolean;
+  epicorOrderNumbers?: Record<string, string>;
+  loadingEpicorNumbers?: Record<string, boolean>;
 }
 
 const StyleCheckoutContainer = styled(Box)(() => ({
@@ -48,6 +49,8 @@ export function InvoiceItemCard(props: InvoiceItemCardProps) {
     addBottom,
     isCurrentCompany,
     invoicePay,
+    epicorOrderNumbers = {},
+    loadingEpicorNumbers = {},
   } = props;
   const b3Lang = useB3Lang();
   const navigate = useNavigate();
@@ -65,21 +68,27 @@ export function InvoiceItemCard(props: InvoiceItemCardProps) {
     {
       key: 'orderNumber',
       title: b3Lang('invoice.invoiceItemCardHeader.order'),
-      render: () => (
-        <Box
-          role="button"
-          sx={{
-            color: '#000000',
-            cursor: 'pointer',
-            textDecoration: 'underline',
-          }}
-          onClick={() => {
-            navigate(`/orderDetail/${item.orderNumber}`);
-          }}
-        >
-          {item?.orderNumber || '-'}
-        </Box>
-      ),
+      render: () => {
+        const epicorOrderNumber = epicorOrderNumbers[item.orderNumber];
+        const displayOrderNumber = epicorOrderNumber || item?.orderNumber || '-';
+        const isLoading = loadingEpicorNumbers[item.orderNumber];
+
+        return (
+          <Box
+            role="button"
+            sx={{
+              color: '#000000',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+            onClick={() => {
+              navigate(`/orderDetail/${item.orderNumber}`);
+            }}
+          >
+            {isLoading ? '...' : displayOrderNumber}
+          </Box>
+        );
+      },
     },
     {
       key: 'createdAt',
@@ -235,7 +244,7 @@ export function InvoiceItemCard(props: InvoiceItemCardProps) {
                   textDecoration: 'underline',
                 }}
                 onClick={() => {
-                  handleViewInvoice(id, status, companyInfo.companyId);
+                  handleViewInvoice(id, status, companyInfo.companyId, item.orderNumber);
                 }}
               >
                 {id || '-'}

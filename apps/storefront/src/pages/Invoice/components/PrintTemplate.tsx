@@ -4,8 +4,10 @@ import { Box } from '@mui/material';
 // cspell:disable-next-line
 import PDFObject from 'pdfobject';
 
+import { getBigCommerceOrderMetaFields } from '@/shared/service/b2b/graphql/bigcommerceOrderMeta';
 import B3Spin from '@/components/spin/B3Spin';
-import { snackbar } from '@/utils/b3Tip';
+import { snackbar } from '@/utils';
+import b2bLogger from '@/utils/b3Logger';
 
 import { handlePrintPDF } from '../utils/pdf';
 
@@ -13,15 +15,17 @@ interface RowList {
   id: string;
   createdAt: number;
   updatedAt: number;
+  orderNumber?: string;
 }
 
 const templateMinHeight = 300;
 
 interface PrintTemplateProps {
   row: RowList;
+  epicorOrderNumbers?: Record<string, string>;
 }
 
-function PrintTemplate({ row }: PrintTemplateProps) {
+function PrintTemplate({ row, epicorOrderNumbers = {} }: PrintTemplateProps) {
   const container = useRef<HTMLInputElement | null>(null);
 
   const dom = useRef<HTMLInputElement | null>(null);
@@ -40,18 +44,82 @@ function PrintTemplate({ row }: PrintTemplateProps) {
   useEffect(() => {
     const viewPrint = async () => {
       setLoading(true);
-      const { id: invoiceId } = row;
+      const { id: invoiceId, orderNumber } = row;
 
-      const invoicePDFUrl = await handlePrintPDF(invoiceId);
+      // Get Epicor order number if available
+      let epicorOrderNumber: string | null = null;
+      if (orderNumber) {
+        epicorOrderNumber = epicorOrderNumbers[orderNumber] || null;
+        // If not in cache, try to fetch it
+        if (!epicorOrderNumber) {
+          try {
+            const integrationInfo = await getBigCommerceOrderMetaFields(orderNumber);
+            epicorOrderNumber = integrationInfo?.EpicorErpOrderNumber || null;
+          } catch (error) {
+            b2bLogger.error('Error fetching Epicor order number:', error);
+          }
+        }
+      }
+
+      // Always pass orderNumber (even if Epicor ID is not found, we need it for BigCommerce ID display)
+      const invoicePDFUrl = await handlePrintPDF(
+        invoiceId,
+        false,
+        orderNumber || undefined,
+        epicorOrderNumber,
+      );
 
       if (!invoicePDFUrl) {
         snackbar.error('pdf url resolution error');
+        setLoading(false);
         return;
       }
 
-      if (!container?.current) return;
+      if (!container?.current) {
+        setLoading(false);
+        return;
+      }
 
-      PDFObject.embed(invoicePDFUrl, container.current);
+      // PDFObject.embed works with blob URLs
+      // Ensure we have a valid URL (blob URL or regular URL)
+      try {
+        // Clear container first
+        if (container.current) {
+          container.current.innerHTML = '';
+        }
+        
+        const embedResult = PDFObject.embed(invoicePDFUrl, container.current, {
+          pdfOpenParams: {
+            view: 'FitH',
+            pagemode: 'none',
+          },
+        });
+        
+        if (!embedResult) {
+          // If PDFObject.embed fails, try using an iframe as fallback
+          const iframe = document.createElement('iframe');
+          iframe.src = invoicePDFUrl;
+          iframe.style.width = '100%';
+          iframe.style.height = '100%';
+          iframe.style.border = 'none';
+          if (container.current) {
+            container.current.innerHTML = '';
+            container.current.appendChild(iframe);
+          }
+        }
+      } catch (embedError) {
+        b2bLogger.error('Error embedding PDF:', embedError);
+        // Fallback: use iframe
+        const iframe = document.createElement('iframe');
+        iframe.src = invoicePDFUrl;
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        if (container.current) {
+          container.current.innerHTML = '';
+          container.current.appendChild(iframe);
+        }
+      }
 
       setLoading(false);
     };
@@ -61,7 +129,7 @@ function PrintTemplate({ row }: PrintTemplateProps) {
     return () => {
       container.current = null;
     };
-  }, [row]);
+  }, [row, epicorOrderNumbers]);
 
   return (
     <B3Spin isSpinning={loading}>

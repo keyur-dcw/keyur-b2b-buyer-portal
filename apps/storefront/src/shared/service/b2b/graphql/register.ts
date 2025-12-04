@@ -1,5 +1,9 @@
-import { channelId, storeHash } from '@/utils/basicConfig';
-import { convertArrayToGraphql, convertObjectOrArrayKeysToCamel } from '@/utils/graphqlDataConvert';
+import {
+  channelId,
+  convertArrayToGraphql,
+  convertObjectOrArrayKeysToCamel,
+  storeHash,
+} from '@/utils';
 
 import B3Request from '../../request/b3Fetch';
 

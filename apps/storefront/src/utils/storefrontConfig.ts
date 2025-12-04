@@ -28,8 +28,7 @@ import {
   setTaxZoneRates,
 } from '@/store/slices/global';
 import { setActiveCurrency, setCurrencies } from '@/store/slices/storeConfigs';
-import { B3SStorage } from '@/utils/b3Storage';
-import { channelId } from '@/utils/basicConfig';
+import { B3SStorage, channelId } from '@/utils';
 import { FeatureFlagKey, featureFlags } from '@/utils/featureFlags';
 
 import { checkEveryPermissionsCode } from './b3CheckPermissions/check';

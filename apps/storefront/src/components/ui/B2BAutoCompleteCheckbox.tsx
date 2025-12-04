@@ -18,7 +18,7 @@ interface B2BAutoCompleteCheckboxProps {
   handleChangeCompanyIds: (companyIds: number[]) => void;
 }
 
-export function B2BAutoCompleteCheckbox({ handleChangeCompanyIds }: B2BAutoCompleteCheckboxProps) {
+function B2BAutoCompleteCheckbox({ handleChangeCompanyIds }: B2BAutoCompleteCheckboxProps) {
   const b3Lang = useB3Lang();
   const [isMobile] = useMobile();
   const { id: currentCompanyId, companyName } = useAppSelector(
@@ -202,3 +202,5 @@ export function B2BAutoCompleteCheckbox({ handleChangeCompanyIds }: B2BAutoCompl
     </FormControl>
   );
 }
+
+export default B2BAutoCompleteCheckbox;

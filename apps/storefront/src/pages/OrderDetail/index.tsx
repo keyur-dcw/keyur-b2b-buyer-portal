@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowBackIosNew, InfoOutlined } from '@mui/icons-material';
-import { Box, Grid, Stack, Typography } from '@mui/material';
+import { Box, CircularProgress, Grid, Stack, Typography } from '@mui/material';
 
 import { b3HexToRgb, getContrastColor } from '@/components/outSideComponents/utils/b3CustomStyles';
 import B3Spin from '@/components/spin/B3Spin';
@@ -16,6 +16,9 @@ import {
   getBcOrderStatusType,
   getOrderStatusType,
 } from '@/shared/service/b2b';
+
+import { getBigCommerceOrderMetaFields } from '@/shared/service/b2b/graphql/bigcommerceOrderMeta';
+
 import { isB2BUserSelector, useAppSelector } from '@/store';
 import { AddressConfigItem, CustomerRole, OrderProductItem, OrderStatusItem } from '@/types';
 import b2bLogger from '@/utils/b3Logger';
@@ -91,6 +94,8 @@ function OrderDetail() {
   const [orderId, setOrderId] = useState('');
   const [isRequestLoading, setIsRequestLoading] = useState(false);
   const [isCurrentCompany, setIsCurrentCompany] = useState(false);
+  const [epicorOrderNumber, setEpicorOrderNumber] = useState<string | null>(null);
+  const [isLoadingEpicorNumber, setIsLoadingEpicorNumber] = useState(false);
 
   useEffect(() => {
     setOrderId(params.id || '');
@@ -163,6 +168,34 @@ function OrderDetail() {
     // Disabling rule since dispatch does not need to be in the dep array and b3Lang has rendering errors
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isB2BUser, orderId, preOrderId, selectCompanyHierarchyId]);
+
+  // Fetch Epicor order number when orderId changes
+  useEffect(() => {
+    if (!orderId) {
+      setEpicorOrderNumber(null);
+      setIsLoadingEpicorNumber(false);
+      return;
+    }
+
+    const fetchEpicorNumber = async () => {
+      setIsLoadingEpicorNumber(true);
+      try {
+        const integrationInfo = await getBigCommerceOrderMetaFields(orderId);
+        if (integrationInfo?.EpicorErpOrderNumber) {
+          setEpicorOrderNumber(integrationInfo.EpicorErpOrderNumber);
+        } else {
+          setEpicorOrderNumber(null);
+        }
+      } catch (error) {
+        console.error('Error fetching Epicor order number:', error);
+        setEpicorOrderNumber(null);
+      } finally {
+        setIsLoadingEpicorNumber(false);
+      }
+    };
+
+    fetchEpicorNumber();
+  }, [orderId]);
 
   const handlePageChange = (orderId: string | number) => {
     setOrderId(orderId.toString());
@@ -272,9 +305,23 @@ function OrderDetail() {
               variant="h4"
               sx={{
                 color: b3HexToRgb(customColor, 0.87) || '#263238',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
               }}
             >
-              {b3Lang('orderDetail.orderId', { orderId })}
+              {isLoadingEpicorNumber ? (
+                <>
+                  {b3Lang('orderDetail.orderId', { orderId: '...' })}
+                  <CircularProgress size={16} />
+                </>
+              ) : (
+                <>
+                  {b3Lang('orderDetail.orderId', {
+                    orderId: epicorOrderNumber || orderId,
+                  })}
+                </>
+              )}
               {b3Lang('orderDetail.purchaseOrderNumber', {
                 purchaseOrderNumber: poNumber ?? '',
               })}

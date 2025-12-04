@@ -1,6 +1,6 @@
 import B3Request from '@/shared/service/request/b3Fetch';
 import { OrderStatusItem } from '@/types';
-import { convertArrayToGraphql } from '@/utils/graphqlDataConvert';
+import { convertArrayToGraphql } from '@/utils';
 
 export type CustomerOrderNode = {
   node: {
