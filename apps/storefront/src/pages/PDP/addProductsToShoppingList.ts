@@ -7,7 +7,7 @@ import { store } from '@/store';
 import { getProductOptionList, isAllRequiredOptionFilled } from '@/utils/b3AddToShoppingList';
 import { getValidOptionsList } from '@/utils/b3Product/b3Product';
 import { getActiveCurrencyInfo } from '@/utils/currencyUtils';
-import { ValidationError } from '@/utils/validationError';
+import ValidationError from '@/utils/validationError';
 
 import { conversionProductsList } from '../../utils/b3Product/shared/config';
 

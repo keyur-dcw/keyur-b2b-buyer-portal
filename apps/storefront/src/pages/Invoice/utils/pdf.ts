@@ -50,8 +50,7 @@ const replaceOrderIdInPdf = async (
     });
 
     const modifiedPdfBytes = await pdfDoc.save();
-    // @ts-expect-error - pdf-lib returns Uint8Array which is compatible with Blob but TypeScript types are strict
-    return new Blob([modifiedPdfBytes], { type: 'application/pdf' });
+    return new Blob([modifiedPdfBytes as BlobPart], { type: 'application/pdf' });
 
   } catch (error) {
     b2bLogger.error('PDF modification failed:', error);

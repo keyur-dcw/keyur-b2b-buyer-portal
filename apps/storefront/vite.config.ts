@@ -25,7 +25,6 @@ export default defineConfig(({ mode }): UserConfig & Pick<ViteUserConfig, 'test'
     server: {
       port: 3001,
       cors: true,
-      allowedHosts: ['planar-babara-unidealistic.ngrok-free.dev'],
       proxy: {
         '/bigcommerce': {
           target:
@@ -98,6 +97,7 @@ export default defineConfig(({ mode }): UserConfig & Pick<ViteUserConfig, 'test'
             muiIcon: ['@mui/icons-material'],
             redux: ['react-redux'],
             dateFns: ['date-fns'],
+            pdfLib: ['pdf-lib'],
             pdfobject: ['pdfobject'],
             resizable: ['react-resizable'],
             toolkit: ['@reduxjs/toolkit'],
