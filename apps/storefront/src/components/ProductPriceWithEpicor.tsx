@@ -16,6 +16,7 @@ interface ProductPriceWithEpicorProps {
   priceLabel?: string;
   showLoading?: boolean;
   isMobile?: boolean;
+  showUnitPrice?: boolean; // If true, show unit price; if false, show total (unit price × quantity)
 }
 
 /**
@@ -31,6 +32,7 @@ export function ProductPriceWithEpicor({
   priceLabel = '',
   showLoading = true,
   isMobile = false,
+  showUnitPrice = false,
 }: ProductPriceWithEpicorProps): ReactElement {
   const isB2BUser = useAppSelector(({ company }) => company.customer.role) !== 2;
 
@@ -50,6 +52,9 @@ export function ProductPriceWithEpicor({
   const unitPrice = isB2BUser && epicorPrice !== null ? epicorPrice : basePrice;
   const totalPrice = unitPrice * quantity;
   const displayCurrency = isB2BUser && epicorPrice !== null ? currency : 'USD';
+  
+  // Use unit price for Price column, total price for Total column
+  const displayPrice = showUnitPrice ? unitPrice : totalPrice;
 
   // Format price function
   const formatPrice = (price: number, curr: string) => {
@@ -85,19 +90,19 @@ export function ProductPriceWithEpicor({
 
   // Show discounted price if available
   if (discountedPrice !== undefined && discountedPrice < unitPrice) {
-    const discountedTotal = discountedPrice * quantity;
+    const discountedDisplayPrice = showUnitPrice ? discountedPrice : discountedPrice * quantity;
     return (
       <>
         <span style={{ textDecoration: 'line-through' }}>
-          {getDisplayPriceValue(totalPrice)}
+          {getDisplayPriceValue(displayPrice)}
         </span>
         <span style={{ color: '#2E7D32', marginLeft: '8px' }}>
-          {getDisplayPriceValue(discountedTotal)}
+          {getDisplayPriceValue(discountedDisplayPrice)}
         </span>
       </>
     );
   }
 
-  return <span>{getDisplayPriceValue(totalPrice)}</span>;
+  return <span>{getDisplayPriceValue(displayPrice)}</span>;
 }
 

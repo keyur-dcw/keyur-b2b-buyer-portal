@@ -335,7 +335,8 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
       await handleUpdateShoppingListItem(itemId);
       snackbar.success(b3Lang('shoppingList.table.quantityUpdated'));
       setQtyNotChangeFlag(true);
-      initSearch({ keepCheckedItems: true });
+      // Refresh the list to get updated data from server, which will trigger Epicor pricing recalculation
+      await initSearch({ keepCheckedItems: true });
     } finally {
       setIsRequestLoading(false);
     }
@@ -380,13 +381,16 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
   };
 
   // Calculate total using Epicor prices when available
-  const productsForTotal = shoppingListInfo?.products?.edges?.map((item: ListItemProps) => ({
-    productId: item.node.productId,
-    variantSku: item.node.variantSku || '',
-    quantity: Number(item.node.quantity) || 1,
-    basePrice: item.node.basePrice,
-    taxPrice: Number(item.node.tax) || 0, // Use 'tax' field from ProductInfoProps
-  })) || [];
+  // Filter out products with quantity 0
+  const productsForTotal = shoppingListInfo?.products?.edges
+    ?.filter((item: ListItemProps) => Number(item.node.quantity) > 0)
+    ?.map((item: ListItemProps) => ({
+      productId: item.node.productId,
+      variantSku: item.node.variantSku || '',
+      quantity: Number(item.node.quantity) || 1,
+      basePrice: item.node.basePrice,
+      taxPrice: Number(item.node.tax) || 0, // Use 'tax' field from ProductInfoProps
+    })) || [];
 
   const { total: epicorTotal, isLoading: isEpicorTotalLoading } = useEpicorTotal({
     products: productsForTotal,
@@ -542,14 +546,16 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
       key: 'Price',
       title: b3Lang('shoppingList.table.price'),
       render: (row: CustomFieldItems) => {
-        const { basePrice, taxPrice = 0, productId, variantSku, quantity } = row;
+        const { basePrice, taxPrice = 0, productId, variantSku, quantity, itemId } = row;
         const inTaxPrice = getBCPrice(Number(basePrice), Number(taxPrice));
+        const currentQuantity = Number(quantity) || 1;
 
         // Use Epicor pricing hook for B2B users
+        // Key ensures recalculation when quantity or itemId changes
         const { epicorPrice, isLoading, currency } = useEpicorPricing({
           productId: productId,
           sku: variantSku || '',
-          quantity: Number(quantity) || 1,
+          quantity: currentQuantity,
           enabled: isB2BUser,
         });
 
@@ -565,20 +571,21 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
           }).format(price);
         };
 
+        // Show BC price as fallback while Epicor is loading
+        const displayPriceValue = isB2BUser && epicorPrice !== null ? displayPrice : inTaxPrice;
+        const displayCurrencyValue = isB2BUser && epicorPrice !== null ? displayCurrency : 'USD';
+
         return (
           <Typography
+            key={`price-${itemId}-${currentQuantity}`}
             sx={{
               padding: '12px 0',
             }}
           >
-            {isB2BUser ? (
-              isLoading ? (
-                'Loading...'
-              ) : epicorPrice !== null ? (
-                showPrice(formatPrice(displayPrice, displayCurrency), row)
-              ) : (
-                showPrice(currencyFormat(inTaxPrice), row)
-              )
+            {isB2BUser && isLoading && epicorPrice === null ? (
+              showPrice(currencyFormat(inTaxPrice), row)
+            ) : isB2BUser && epicorPrice !== null ? (
+              showPrice(formatPrice(displayPriceValue, displayCurrencyValue), row)
             ) : (
               showPrice(currencyFormat(inTaxPrice), row)
             )}
@@ -638,18 +645,20 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
         } = row;
 
         const inTaxPrice = getBCPrice(Number(basePrice), Number(taxPrice));
+        const currentQuantity = Number(quantity) || 1;
 
         // Use Epicor pricing hook for B2B users
-        const { epicorPrice, isLoading, currency } = useEpicorPricing({
+        // Key ensures recalculation when quantity or itemId changes
+        const { epicorPrice, currency } = useEpicorPricing({
           productId: productId,
           sku: variantSku || '',
-          quantity: Number(quantity) || 1,
+          quantity: currentQuantity,
           enabled: isB2BUser,
         });
 
         // Calculate total price
         const unitPrice = isB2BUser && epicorPrice !== null ? epicorPrice : inTaxPrice;
-        const totalPrice = unitPrice * Number(quantity);
+        const totalPrice = unitPrice * currentQuantity;
         const displayCurrency = isB2BUser && epicorPrice !== null ? currency : 'USD';
 
         // Format price with currency
@@ -668,23 +677,22 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
           !isJuniorApprove &&
           b2bAndBcShoppingListActionsPermissions;
 
+        // Calculate fallback total using BC price while Epicor is loading
+        const bcTotalPrice = inTaxPrice * currentQuantity;
+        const finalTotalPrice = isB2BUser && epicorPrice !== null ? totalPrice : bcTotalPrice;
+
         return (
           <Box>
             <Typography
+              key={`total-${itemId}-${currentQuantity}`}
               sx={{
                 padding: '12px 0',
               }}
             >
-              {isB2BUser ? (
-                isLoading ? (
-                  'Loading...'
-                ) : epicorPrice !== null ? (
-                  showPrice(formatPrice(totalPrice, displayCurrency), row)
-                ) : (
-                  showPrice(currencyFormat(totalPrice), row)
-                )
+              {isB2BUser && epicorPrice !== null ? (
+                showPrice(formatPrice(finalTotalPrice, displayCurrency), row)
               ) : (
-                showPrice(currencyFormat(totalPrice), row)
+                showPrice(currencyFormat(finalTotalPrice), row)
               )}
             </Typography>
             <Box

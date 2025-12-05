@@ -325,6 +325,7 @@ export default function B3ProductList<T>(props: ProductProps<T>) {
           priceLabel: string,
           _priceValue: number,
           priceDiscountedValue: number,
+          isUnitPrice: boolean = false,
         ) => {
           return (
             <FlexItem
@@ -365,6 +366,7 @@ export default function B3ProductList<T>(props: ProductProps<T>) {
                       priceLabel=""
                       showLoading={true}
                       isMobile={false}
+                      showUnitPrice={isUnitPrice}
                     />
                   </span>
                 </Box>
@@ -438,7 +440,7 @@ export default function B3ProductList<T>(props: ProductProps<T>) {
               </Box>
             </FlexItem>
 
-            {renderPrice('Price', productPrice, discountedPrice)}
+            {renderPrice('Price', productPrice, discountedPrice, true)}
             <FlexItem
               textAlignLocation={textAlign}
               {...itemStyle.qty}
@@ -479,7 +481,7 @@ export default function B3ProductList<T>(props: ProductProps<T>) {
               )}
             </FlexItem>
 
-            {renderPrice(totalText, totalPrice, discountedTotalPrice)}
+            {renderPrice(totalText, totalPrice, discountedTotalPrice, false)}
             {renderAction && (
               <FlexItem
                 {...itemStyle.default}

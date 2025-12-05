@@ -92,6 +92,15 @@ export function useEpicorSubtotal({ checkedArr, enabled = true }: UseEpicorSubto
       return;
     }
 
+    // Filter out items with quantity 0
+    const validCheckedArr = checkedArr.filter((item) => Number(item.node.quantity) > 0);
+
+    if (validCheckedArr.length === 0) {
+      setSubtotal(0);
+      setIsLoading(false);
+      return;
+    }
+
     const calculateSubtotal = async () => {
       setIsLoading(true);
 
@@ -102,7 +111,7 @@ export function useEpicorSubtotal({ checkedArr, enabled = true }: UseEpicorSubto
         // If B2B user and we have company extraFields, try to get Epicor prices
         if (isB2BUser && companyExtraFields && companyExtraFields.custId && companyExtraFields.epicorGroupCode) {
           // Fetch Epicor prices for all checked products
-          const pricePromises = checkedArr.map(async (item) => {
+          const pricePromises = validCheckedArr.map(async (item) => {
             try {
               const { node } = item;
               const productId = node.productId;
@@ -139,7 +148,7 @@ export function useEpicorSubtotal({ checkedArr, enabled = true }: UseEpicorSubto
               calculatedSubtotal += price;
             } else {
               // Fall back to BigCommerce price for this product
-              const item = checkedArr[index];
+              const item = validCheckedArr[index];
               const { node } = item;
               let bcPrice = 0;
 
@@ -169,7 +178,7 @@ export function useEpicorSubtotal({ checkedArr, enabled = true }: UseEpicorSubto
         }
 
         // If no Epicor prices, use BigCommerce prices
-        checkedArr.forEach((item) => {
+        validCheckedArr.forEach((item) => {
           const { node } = item;
           let bcPrice = 0;
 
@@ -194,7 +203,7 @@ export function useEpicorSubtotal({ checkedArr, enabled = true }: UseEpicorSubto
         console.error('[Epicor Subtotal] Error calculating subtotal:', err);
         // Fall back to BigCommerce prices on error
         let fallbackSubtotal = 0;
-        checkedArr.forEach((item) => {
+        validCheckedArr.forEach((item) => {
           const { node } = item;
           let bcPrice = 0;
 

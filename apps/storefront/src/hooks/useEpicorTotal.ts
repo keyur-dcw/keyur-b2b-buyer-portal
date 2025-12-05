@@ -77,6 +77,15 @@ export function useEpicorTotal({ products, enabled = true }: UseEpicorTotalProps
       return;
     }
 
+    // Filter out products with quantity 0
+    const validProducts = products.filter((product) => Number(product.quantity) > 0);
+
+    if (validProducts.length === 0) {
+      setTotal(0);
+      setIsLoading(false);
+      return;
+    }
+
     const calculateTotal = async () => {
       // Set loading immediately when products are available
       setIsLoading(true);
@@ -88,7 +97,7 @@ export function useEpicorTotal({ products, enabled = true }: UseEpicorTotalProps
         // If B2B user and we have company extraFields, try to get Epicor prices
         if (isB2BUser && companyExtraFields && companyExtraFields.custId && companyExtraFields.epicorGroupCode) {
           // Fetch Epicor prices for all products
-          const pricePromises = products.map(async (product) => {
+          const pricePromises = validProducts.map(async (product) => {
             try {
               const pricingResponse = await getEpicorPrice({
                 customer_id: companyExtraFields.custId || null,
@@ -123,7 +132,7 @@ export function useEpicorTotal({ products, enabled = true }: UseEpicorTotalProps
 
           // If we got some Epicor prices but not all, fall back to BC prices for missing ones
           if (hasEpicorPrices) {
-            products.forEach((product, index) => {
+            validProducts.forEach((product, index) => {
               if (epicorPrices[index] === null) {
                 // Fall back to BigCommerce price
                 const bcPrice = getBCPrice(
@@ -141,7 +150,7 @@ export function useEpicorTotal({ products, enabled = true }: UseEpicorTotalProps
 
         // If no Epicor prices, use BigCommerce prices
         if (!hasEpicorPrices) {
-          products.forEach((product) => {
+          validProducts.forEach((product) => {
             const bcPrice = getBCPrice(
               Number(product.basePrice),
               Number(product.taxPrice || 0),
@@ -155,7 +164,7 @@ export function useEpicorTotal({ products, enabled = true }: UseEpicorTotalProps
         console.error('[Epicor Total] Error calculating total:', err);
         // Fall back to BigCommerce prices on error
         let fallbackTotal = 0;
-        products.forEach((product) => {
+        validProducts.forEach((product) => {
           const bcPrice = getBCPrice(
             Number(product.basePrice),
             Number(product.taxPrice || 0),
