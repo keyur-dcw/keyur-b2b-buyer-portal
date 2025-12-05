@@ -401,13 +401,17 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
         totalTax,
       } = shoppingListInfo;
 
-      // For B2B users: Use Epicor total if available, otherwise keep showing loading
+      // For B2B users: Use Epicor total if available and loaded, otherwise use BC total as fallback
       // For non-B2B users: Use backend total immediately
-      const NewShoppingListTotalPrice = isB2BUser
-        ? (epicorTotal > 0 && !isEpicorTotalLoading ? epicorTotal : 0)
-        : showInclusiveTaxPrice
+      const bcTotal = showInclusiveTaxPrice
         ? Number(grandTotal)
         : Number(grandTotal) - Number(totalTax) || 0.0;
+      
+      // Use Epicor total only if it's loaded (not loading) and we have a valid total
+      // Otherwise, use BC total as fallback (which will show while loading, then switch to Epicor when ready)
+      const NewShoppingListTotalPrice = isB2BUser
+        ? (!isEpicorTotalLoading && epicorTotal > 0 ? epicorTotal : bcTotal)
+        : bcTotal;
 
       const isPriceHidden = edges.some((item: CustomFieldItems) => {
         if (item?.node?.productsSearch) {

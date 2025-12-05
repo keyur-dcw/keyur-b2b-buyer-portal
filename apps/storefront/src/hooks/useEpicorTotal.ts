@@ -73,10 +73,12 @@ export function useEpicorTotal({ products, enabled = true }: UseEpicorTotalProps
   useEffect(() => {
     if (!products || products.length === 0) {
       setTotal(0);
+      setIsLoading(false);
       return;
     }
 
     const calculateTotal = async () => {
+      // Set loading immediately when products are available
       setIsLoading(true);
 
       try {
