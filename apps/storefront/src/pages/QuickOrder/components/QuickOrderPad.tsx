@@ -66,47 +66,45 @@ export default function QuickOrderPad() {
 
       // Get webhook config from global constants
       const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
-      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE);
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE_B2B);
 
-      // Call webhook for each product
-      const webhookPromises = products.map(async (product, index) => {
-        // Find matching cart line item by productId and variantId
-        // Try multiple matching strategies
-        const productId = product.productId || product.id || 0;
-        const variantId = product.variantId || product.products?.variantId || 0;
-        const sku = product.sku || product.variantSku || product.products?.variantSku || '';
+      // Build array of all cart items for batch webhook call
+      const cart_items = products
+        .map((product) => {
+          // Find matching cart line item by productId and variantId
+          // Try multiple matching strategies
+          const productId = product.productId || product.id || 0;
+          const variantId = product.variantId || product.products?.variantId || 0;
+          const sku = product.sku || product.variantSku || product.products?.variantSku || '';
 
-        let cartLineItem = lineItems.find(
-          (lineItem) =>
-            lineItem.productEntityId === productId && lineItem.variantEntityId === variantId,
-        );
-
-        // If not found, try matching by SKU
-        if (!cartLineItem && sku) {
-          cartLineItem = lineItems.find((lineItem) => lineItem.sku === sku);
-        }
-
-        // If still not found and only one item in cart, use it
-        if (!cartLineItem && lineItems.length === 1) {
-          cartLineItem = lineItems[0];
-        }
-
-        // If still not found, try matching by productId only (last resort)
-        if (!cartLineItem && productId) {
-          cartLineItem = lineItems.find((lineItem) => lineItem.productEntityId === productId);
-        }
-
-        if (!cartLineItem) {
-          console.warn(
-            `[Quick Order Webhook] No matching cart line item found for product: productId=${productId}, variantId=${variantId}, sku=${sku}`,
+          let cartLineItem = lineItems.find(
+            (lineItem) =>
+              lineItem.productEntityId === productId && lineItem.variantEntityId === variantId,
           );
-          return null;
-        }
 
-        const webhookBody = {
-          action: 'update_cart_prices',
-          cart_id: cartId,
-          cart_item: {
+          // If not found, try matching by SKU
+          if (!cartLineItem && sku) {
+            cartLineItem = lineItems.find((lineItem) => lineItem.sku === sku);
+          }
+
+          // If still not found and only one item in cart, use it
+          if (!cartLineItem && lineItems.length === 1) {
+            cartLineItem = lineItems[0];
+          }
+
+          // If still not found, try matching by productId only (last resort)
+          if (!cartLineItem && productId) {
+            cartLineItem = lineItems.find((lineItem) => lineItem.productEntityId === productId);
+          }
+
+          if (!cartLineItem) {
+            console.warn(
+              `[Quick Order Webhook] No matching cart line item found for product: productId=${productId}, variantId=${variantId}, sku=${sku}`,
+            );
+            return null;
+          }
+
+          return {
             item_id: cartLineItem.entityId || '',
             product_id: product.productId || productId,
             variant_id: product.variantId || variantId,
@@ -115,37 +113,61 @@ export default function QuickOrderPad() {
             quantity: product.quantity || 1,
             epicor_price: cartLineItem.originalPrice?.value || 0,
             original_price: cartLineItem.originalPrice?.value || 0,
+          };
+        })
+        .filter((item) => item !== null);
+
+      if (cart_items.length === 0) {
+        console.warn('[Quick Order Webhook] No valid cart items to send');
+        return;
+      }
+
+      // Send all items in a single webhook call
+      const webhookBody = {
+        action: 'update_cart_prices',
+        cart_id: cartId,
+        cart_items: cart_items,
+        store_hash: storeHash,
+        auth_token: authToken,
+        total_items: cart_items.length,
+      };
+
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-          store_hash: storeHash,
-          auth_token: authToken,
-          item_number: index + 1,
-          total_items: products.length,
-        };
+          body: JSON.stringify(webhookBody),
+        });
 
-        try {
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(webhookBody),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Webhook error: ${response.status}`);
+        if (!response.ok) {
+          // Try to get error details from response
+          let errorMessage = `Webhook error: ${response.status}`;
+          try {
+            const errorData = await response.text();
+            if (errorData) {
+              errorMessage += ` - ${errorData}`;
+              console.error('[Quick Order Webhook] Error response body:', errorData);
+            }
+          } catch (parseError) {
+            // Ignore if we can't parse the error
           }
-
-          const responseData = await response.json();
-          return Array.isArray(responseData) ? responseData[0] : responseData;
-        } catch (error) {
-          console.error(`[Quick Order Webhook] Error calling webhook for product ${index + 1}:`, error);
-          b2bLogger.error('Error calling update cart prices webhook:', error);
-          return null;
+          throw new Error(errorMessage);
         }
-      });
 
-      // Wait for all webhook calls to complete
-      await Promise.all(webhookPromises);
+        const responseData = await response.json();
+        
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
+        return responseData;
+      } catch (error) {
+        console.error('[Quick Order Webhook] Error calling webhook:', error);
+        console.error('[Quick Order Webhook] Request payload:', JSON.stringify(webhookBody, null, 2));
+        b2bLogger.error('Error calling update cart prices webhook:', error);
+        throw error;
+      }
     } catch (error) {
       console.error('[Quick Order Webhook] Error in webhook call:', error);
       b2bLogger.error('Error updating cart prices:', error);
@@ -209,6 +231,9 @@ export default function QuickOrderPad() {
           }
         }
 
+        // Stop loader and show view cart after webhook completes
+        setIsLoading(false);
+        
         snackbar.success(b3Lang('purchasedProducts.quickOrderPad.productsAdded'), {
           action: {
             label: b3Lang('purchasedProducts.quickOrderPad.viewCart'),
@@ -224,7 +249,6 @@ export default function QuickOrderPad() {
       b3TriggerCartNumber();
     } catch (error) {
       console.error('[Quick Order] Error in addSingleProductToCart:', error);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -354,6 +378,8 @@ export default function QuickOrderPad() {
           }
         }
 
+        // Stop loader and show view cart after webhook completes
+        setIsLoading(false);
         getSnackbarMessage(res);
         b3TriggerCartNumber();
       }

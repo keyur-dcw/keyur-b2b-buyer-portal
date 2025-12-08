@@ -262,28 +262,26 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
 
       // Get webhook config from global constants
       const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
-      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE);
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE_B2B);
 
-      // Call webhook for each selected item
-      const webhookPromises = selectedItems.map(async (item, index) => {
-        const { node } = item;
-        
-        // Find matching cart line item
-        const cartLineItem = lineItems.find(
-          (lineItem) => 
-            lineItem.sku === node.variantSku || 
-            lineItem.productEntityId === node.productId
-        );
+      // Build array of all cart items for batch webhook call
+      const cart_items = selectedItems
+        .map((item) => {
+          const { node } = item;
+          
+          // Find matching cart line item
+          const cartLineItem = lineItems.find(
+            (lineItem) => 
+              lineItem.sku === node.variantSku || 
+              lineItem.productEntityId === node.productId
+          );
 
-        if (!cartLineItem) {
-          console.warn(`[Webhook] No matching cart line item found for product: ${node.productName} (SKU: ${node.variantSku})`);
-          return null;
-        }
+          if (!cartLineItem) {
+            console.warn(`[Webhook] No matching cart line item found for product: ${node.productName} (SKU: ${node.variantSku})`);
+            return null;
+          }
 
-        const webhookBody = {
-          action: 'update_cart_prices',
-          cart_id: cartId,
-          cart_item: {
+          return {
             item_id: cartLineItem.entityId || '',
             product_id: node.productId,
             variant_id: node.variantId,
@@ -292,37 +290,61 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
             quantity: Number(node.quantity) || 1,
             epicor_price: Number(node.basePrice) || 0,
             original_price: Number(node.basePrice) || 0,
+          };
+        })
+        .filter((item) => item !== null);
+
+      if (cart_items.length === 0) {
+        console.warn('[Webhook] No valid cart items to send');
+        return;
+      }
+
+      // Send all items in a single webhook call
+      const webhookBody = {
+        action: 'update_cart_prices',
+        cart_id: cartId,
+        cart_items: cart_items,
+        store_hash: storeHash,
+        auth_token: authToken,
+        total_items: cart_items.length,
+      };
+
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-          store_hash: storeHash,
-          auth_token: authToken,
-          item_number: index + 1,
-          total_items: selectedItems.length,
-        };
+          body: JSON.stringify(webhookBody),
+        });
 
-        try {
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(webhookBody),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Webhook error: ${response.status}`);
+        if (!response.ok) {
+          // Try to get error details from response
+          let errorMessage = `Webhook error: ${response.status}`;
+          try {
+            const errorData = await response.text();
+            if (errorData) {
+              errorMessage += ` - ${errorData}`;
+              console.error('[Webhook] Error response body:', errorData);
+            }
+          } catch (parseError) {
+            // Ignore if we can't parse the error
           }
-
-          const responseData = await response.json();
-          return Array.isArray(responseData) ? responseData[0] : responseData;
-        } catch (error) {
-          console.error(`[Webhook] Error calling webhook for item ${index + 1}:`, error);
-          b2bLogger.error('Error calling update cart prices webhook:', error);
-          return null;
+          throw new Error(errorMessage);
         }
-      });
 
-      // Wait for all webhook calls to complete
-      await Promise.all(webhookPromises);
+        const responseData = await response.json();
+        
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
+        return responseData;
+      } catch (error) {
+        console.error('[Webhook] Error calling webhook:', error);
+        console.error('[Webhook] Request payload:', JSON.stringify(webhookBody, null, 2));
+        b2bLogger.error('Error calling update cart prices webhook:', error);
+        throw error;
+      }
     } catch (error) {
       console.error('[Webhook] Error in webhook call:', error);
       b2bLogger.error('Error updating cart prices:', error);
@@ -392,9 +414,6 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
     );
 
     if (validateSuccessArr.length !== 0) {
-      console.log('[Add to Cart] Starting frontend add to cart process');
-      console.log('[Add to Cart] Validated success items:', validateSuccessArr);
-
       const lineItems = addLineItems(validateSuccessArr);
       const deleteCartObject = deleteCartData(cartEntityId);
       const cartInfo = await getCart();
@@ -435,6 +454,8 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
           }
         }
 
+        // Stop loader and show view cart after webhook completes
+        setLoading(false);
         shouldRedirectCheckout();
       }
     }
@@ -486,6 +507,8 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
         }
       }
 
+      // Stop loader and show view cart after webhook completes
+      setLoading(false);
       shouldRedirectCheckout();
       setValidateSuccessProducts(items);
       } catch (e: unknown) {
@@ -513,9 +536,9 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
     try {
       setLoading(true);
       await addToCart();
+      // Note: setLoading(false) is now called inside addToCart after webhook completes
     } catch (error) {
       console.error('[Add to Cart] Error in add to cart process:', error);
-    } finally {
       setLoading(false);
     }
   };

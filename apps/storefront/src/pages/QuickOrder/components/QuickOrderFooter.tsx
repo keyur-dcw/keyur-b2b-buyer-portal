@@ -169,27 +169,26 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
 
       // Get webhook config from global constants
       const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
-      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE);
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE_B2B);
 
-      const webhookPromises = lineItems.map(async (lineItem, index) => {
-        const cartLineItem = cartLineItems.find(
-          (item) =>
-            (item.productEntityId === lineItem.productId &&
-              item.variantEntityId === lineItem.variantId) ||
-            cartLineItems.length === 1
-        );
-
-        if (!cartLineItem) {
-          console.warn(
-            `[Quick Order Footer Webhook] No matching cart line item found for product: ${lineItem.productId} variant: ${lineItem.variantId}`,
+      // Build array of all cart items for batch webhook call
+      const cart_items = lineItems
+        .map((lineItem) => {
+          const cartLineItem = cartLineItems.find(
+            (item) =>
+              (item.productEntityId === lineItem.productId &&
+                item.variantEntityId === lineItem.variantId) ||
+              cartLineItems.length === 1
           );
-          return null;
-        }
 
-        const webhookBody = {
-          action: 'update_cart_prices',
-          cart_id: cartId,
-          cart_item: {
+          if (!cartLineItem) {
+            console.warn(
+              `[Quick Order Footer Webhook] No matching cart line item found for product: ${lineItem.productId} variant: ${lineItem.variantId}`,
+            );
+            return null;
+          }
+
+          return {
             item_id: cartLineItem.entityId || '',
             product_id: lineItem.productId,
             variant_id: lineItem.variantId,
@@ -198,36 +197,61 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
             quantity: lineItem.quantity || 1,
             epicor_price: cartLineItem.originalPrice?.value || 0,
             original_price: cartLineItem.originalPrice?.value || 0,
+          };
+        })
+        .filter((item) => item !== null);
+
+      if (cart_items.length === 0) {
+        console.warn('[Quick Order Footer Webhook] No valid cart items to send');
+        return;
+      }
+
+      // Send all items in a single webhook call
+      const webhookBody = {
+        action: 'update_cart_prices',
+        cart_id: cartId,
+        cart_items: cart_items,
+        store_hash: storeHash,
+        auth_token: authToken,
+        total_items: cart_items.length,
+      };
+
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-          store_hash: storeHash,
-          auth_token: authToken,
-          item_number: index + 1,
-          total_items: lineItems.length,
-        };
+          body: JSON.stringify(webhookBody),
+        });
 
-        try {
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(webhookBody),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Webhook error: ${response.status}`);
+        if (!response.ok) {
+          // Try to get error details from response
+          let errorMessage = `Webhook error: ${response.status}`;
+          try {
+            const errorData = await response.text();
+            if (errorData) {
+              errorMessage += ` - ${errorData}`;
+              console.error('[Quick Order Footer Webhook] Error response body:', errorData);
+            }
+          } catch (parseError) {
+            // Ignore if we can't parse the error
           }
-
-          const responseData = await response.json();
-          return Array.isArray(responseData) ? responseData[0] : responseData;
-        } catch (error) {
-          console.error(`[Quick Order Footer Webhook] Error calling webhook for item ${index + 1}:`, error);
-          b2bLogger.error('Error calling update cart prices webhook:', error);
-          return null;
+          throw new Error(errorMessage);
         }
-      });
 
-      await Promise.all(webhookPromises);
+        const responseData = await response.json();
+        
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
+        return responseData;
+      } catch (error) {
+        console.error('[Quick Order Footer Webhook] Error calling webhook:', error);
+        console.error('[Quick Order Footer Webhook] Request payload:', JSON.stringify(webhookBody, null, 2));
+        b2bLogger.error('Error calling update cart prices webhook:', error);
+        throw error;
+      }
     } catch (error) {
       console.error('[Quick Order Footer Webhook] Error in webhook call:', error);
       b2bLogger.error('Error updating cart prices:', error);
@@ -284,6 +308,9 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
         }
       }
 
+      // Stop loader and show view cart after webhook completes
+      setIsRequestLoading(false);
+
       if (res && !res.errors) {
         showAddToCartSuccessMessage();
       } else if (res && res.errors) {
@@ -293,9 +320,9 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
       }
     } catch (error) {
       console.error('[Quick Order Footer] Error in handleFrontedAddSelectedToCart:', error);
+      setIsRequestLoading(false);
     } finally {
       b3TriggerCartNumber();
-      setIsRequestLoading(false);
     }
   };
 
@@ -321,15 +348,17 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
         }
       }
 
+      // Stop loader and show view cart after webhook completes
+      setIsRequestLoading(false);
       showAddToCartSuccessMessage();
     } catch (e) {
       console.error('[Quick Order Footer] Error in handleBackendAddSelectedToCart:', e);
+      setIsRequestLoading(false);
       if (e instanceof Error) {
         snackbar.error(e.message);
       }
     } finally {
       b3TriggerCartNumber();
-      setIsRequestLoading(false);
     }
   };
 

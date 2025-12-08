@@ -77,7 +77,7 @@ export const WEBHOOK_CONFIG = {
   BASE_URL: 'https://cannon.n8n.asgard.dcw.dev',
   AUTH_TOKEN: 'pte9meprexvgw4td3ajlirxdsvk0e07',
   ENDPOINTS: {
-    UPDATE_CART_PRICE: '/webhook/update-cart-price',
+    UPDATE_CART_PRICE_B2B: '/webhook/update-cart-price-b2b',
     EPICOR_PRICING: '/webhook/epicor-pricing',
     GET_ORDER_EPICOR_ID: '/webhook/getOrderEpicorId',
   },
