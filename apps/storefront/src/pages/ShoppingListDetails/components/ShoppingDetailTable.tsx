@@ -20,7 +20,6 @@ import {
 import { TableColumnItem } from '@/components/table/B3Table';
 import { PRODUCT_DEFAULT_IMAGE } from '@/constants';
 import { useEpicorPricing } from '@/hooks/useEpicorPricing';
-import { useEpicorTotal } from '@/hooks/useEpicorTotal';
 import { useMobile } from '@/hooks/useMobile';
 import { useSort } from '@/hooks/useSort';
 import { useB3Lang } from '@/lib/lang';
@@ -167,8 +166,6 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
     role,
   } = props;
 
-  const showInclusiveTaxPrice = useAppSelector(({ global }) => global.showInclusiveTaxPrice);
-
   const { shoppingListCreateActionsPermission, submitShoppingListPermission } =
     useAppSelector(rolePermissionSelector);
 
@@ -190,14 +187,11 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
   });
   const [qtyNotChangeFlag, setQtyNotChangeFlag] = useState<boolean>(true);
   const [originProducts, setOriginProducts] = useState<ListItemProps[]>([]);
-  const [shoppingListTotalPrice, setShoppingListTotalPrice] = useState<number>(0.0);
 
   const [addNoteOpen, setAddNoteOpen] = useState<boolean>(false);
   const [addNoteItemId, setAddNoteItemId] = useState<number | string>('');
   const [notes, setNotes] = useState<string>('');
   const [disabledSelectAll, setDisabledSelectAll] = useState<boolean>(false);
-
-  const [priceHidden, setPriceHidden] = useState<boolean>(false);
 
   const [handleSetOrderBy, order, orderBy] = useSort(sortKeys, defaultSortKey, search, setSearch);
 
@@ -380,56 +374,15 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
     }
   };
 
-  // Calculate total using Epicor prices when available
-  // Filter out products with quantity 0
-  const productsForTotal = shoppingListInfo?.products?.edges
-    ?.filter((item: ListItemProps) => Number(item.node.quantity) > 0)
-    ?.map((item: ListItemProps) => ({
-      productId: item.node.productId,
-      variantSku: item.node.variantSku || '',
-      quantity: Number(item.node.quantity) || 1,
-      basePrice: item.node.basePrice,
-      taxPrice: Number(item.node.tax) || 0, // Use 'tax' field from ProductInfoProps
-    })) || [];
-
-  const { total: epicorTotal, isLoading: isEpicorTotalLoading } = useEpicorTotal({
-    products: productsForTotal,
-    enabled: isB2BUser,
-  });
-
   useEffect(() => {
     if (shoppingListInfo) {
       const {
         products: { edges },
-        grandTotal,
-        totalTax,
       } = shoppingListInfo;
 
-      // For B2B users: Use Epicor total if available and loaded, otherwise use BC total as fallback
-      // For non-B2B users: Use backend total immediately
-      const bcTotal = showInclusiveTaxPrice
-        ? Number(grandTotal)
-        : Number(grandTotal) - Number(totalTax) || 0.0;
-      
-      // Use Epicor total only if it's loaded (not loading) and we have a valid total
-      // Otherwise, use BC total as fallback (which will show while loading, then switch to Epicor when ready)
-      const NewShoppingListTotalPrice = isB2BUser
-        ? (!isEpicorTotalLoading && epicorTotal > 0 ? epicorTotal : bcTotal)
-        : bcTotal;
-
-      const isPriceHidden = edges.some((item: CustomFieldItems) => {
-        if (item?.node?.productsSearch) {
-          return item.node.productsSearch?.isPriceHidden || false;
-        }
-
-        return false;
-      });
-
-      setPriceHidden(isPriceHidden);
       setOriginProducts(cloneDeep(edges));
-      setShoppingListTotalPrice(NewShoppingListTotalPrice);
     }
-  }, [shoppingListInfo, showInclusiveTaxPrice, isB2BUser, epicorTotal, isEpicorTotalLoading]);
+  }, [shoppingListInfo]);
 
   useEffect(() => {
     if (shoppingListInfo) {
@@ -811,19 +764,6 @@ function ShoppingDetailTable(props: ShoppingDetailTableProps, ref: Ref<unknown>)
           {b3Lang('shoppingList.table.totalProductCount', {
             quantity: shoppingListInfo?.products?.totalCount || 0,
           })}
-        </Typography>
-        <Typography
-          sx={{
-            fontSize: '24px',
-          }}
-        >
-          {priceHidden ? '' : (
-            isB2BUser && isEpicorTotalLoading ? (
-              'Loading...'
-            ) : (
-              currencyFormat(shoppingListTotalPrice || 0.0)
-            )
-          )}
         </Typography>
       </Box>
       <Box
