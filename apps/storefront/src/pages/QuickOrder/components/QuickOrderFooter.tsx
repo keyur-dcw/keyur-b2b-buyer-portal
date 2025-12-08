@@ -31,6 +31,10 @@ import { conversionProductsList } from '@/utils/b3Product/shared/config';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
 import { validateProducts } from '@/utils/validateProducts';
+import { getCart } from '@/shared/service/bc/graphql/cart';
+import { storeHash } from '@/utils/basicConfig';
+import Cookies from 'js-cookie';
+import { WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
 
 import CreateShoppingList from '../../OrderDetail/components/CreateShoppingList';
 import OrderShoppingList from '../../OrderDetail/components/OrderShoppingList';
@@ -140,6 +144,97 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
     setIsOpen(false);
   };
 
+  // Call webhook to update cart prices for selected products
+  const callUpdateCartPricesWebhook = async (cartId: string, lineItems: CustomFieldItems[]) => {
+    try {
+      const cartInfo = await getCart(cartId);
+
+      const cartLineItems = (cartInfo?.data?.site?.cart?.lineItems?.physicalItems || []) as Array<{
+        entityId: string;
+        sku: string;
+        productEntityId: number;
+        variantEntityId: number;
+        name: string;
+        quantity: number;
+        originalPrice: {
+          value: number;
+        };
+        [key: string]: any;
+      }>;
+
+      if (cartLineItems.length === 0) {
+        console.warn('[Quick Order Footer Webhook] No line items found in cart');
+        return;
+      }
+
+      // Get webhook config from global constants
+      const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE);
+
+      const webhookPromises = lineItems.map(async (lineItem, index) => {
+        const cartLineItem = cartLineItems.find(
+          (item) =>
+            (item.productEntityId === lineItem.productId &&
+              item.variantEntityId === lineItem.variantId) ||
+            cartLineItems.length === 1
+        );
+
+        if (!cartLineItem) {
+          console.warn(
+            `[Quick Order Footer Webhook] No matching cart line item found for product: ${lineItem.productId} variant: ${lineItem.variantId}`,
+          );
+          return null;
+        }
+
+        const webhookBody = {
+          action: 'update_cart_prices',
+          cart_id: cartId,
+          cart_item: {
+            item_id: cartLineItem.entityId || '',
+            product_id: lineItem.productId,
+            variant_id: lineItem.variantId,
+            sku: cartLineItem.sku || '',
+            name: cartLineItem.name || '',
+            quantity: lineItem.quantity || 1,
+            epicor_price: cartLineItem.originalPrice?.value || 0,
+            original_price: cartLineItem.originalPrice?.value || 0,
+          },
+          store_hash: storeHash,
+          auth_token: authToken,
+          item_number: index + 1,
+          total_items: lineItems.length,
+        };
+
+        try {
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(webhookBody),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Webhook error: ${response.status}`);
+          }
+
+          const responseData = await response.json();
+          return Array.isArray(responseData) ? responseData[0] : responseData;
+        } catch (error) {
+          console.error(`[Quick Order Footer Webhook] Error calling webhook for item ${index + 1}:`, error);
+          b2bLogger.error('Error calling update cart prices webhook:', error);
+          return null;
+        }
+      });
+
+      await Promise.all(webhookPromises);
+    } catch (error) {
+      console.error('[Quick Order Footer Webhook] Error in webhook call:', error);
+      b2bLogger.error('Error updating cart prices:', error);
+      throw error;
+    }
+  };
+
   const showAddToCartSuccessMessage = () => {
     snackbar.success(b3Lang('purchasedProducts.footer.productsAdded'), {
       action: {
@@ -173,6 +268,22 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
 
       const res = await createOrUpdateExistingCart(lineItems);
 
+      // Get cart ID after adding to cart
+      const cartId =
+        res?.data?.cart?.createCart?.cart?.entityId ||
+        res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+        Cookies.get('cartId') ||
+        '';
+
+      // Call webhook after adding to cart
+      if (cartId && lineItems.length > 0) {
+        try {
+          await callUpdateCartPricesWebhook(cartId, lineItems);
+        } catch (webhookError) {
+          console.error('[Quick Order Footer] Webhook error:', webhookError);
+        }
+      }
+
       if (res && !res.errors) {
         showAddToCartSuccessMessage();
       } else if (res && res.errors) {
@@ -180,6 +291,8 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
       } else {
         snackbar.error('Error has occurred');
       }
+    } catch (error) {
+      console.error('[Quick Order Footer] Error in handleFrontedAddSelectedToCart:', error);
     } finally {
       b3TriggerCartNumber();
       setIsRequestLoading(false);
@@ -189,9 +302,28 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
   const handleBackendAddSelectedToCart = async () => {
     try {
       const lineItems = await getProductsSearchInfo();
-      await createOrUpdateExistingCart(lineItems);
+
+      const res = await createOrUpdateExistingCart(lineItems);
+
+      // Get cart ID after adding to cart
+      const cartId =
+        res?.data?.cart?.createCart?.cart?.entityId ||
+        res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+        Cookies.get('cartId') ||
+        '';
+
+      // Call webhook after adding to cart
+      if (cartId && lineItems.length > 0) {
+        try {
+          await callUpdateCartPricesWebhook(cartId, lineItems);
+        } catch (webhookError) {
+          console.error('[Quick Order Footer] Webhook error:', webhookError);
+        }
+      }
+
       showAddToCartSuccessMessage();
     } catch (e) {
+      console.error('[Quick Order Footer] Error in handleBackendAddSelectedToCart:', e);
       if (e instanceof Error) {
         snackbar.error(e.message);
       }

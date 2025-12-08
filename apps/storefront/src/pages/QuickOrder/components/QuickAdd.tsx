@@ -14,6 +14,11 @@ import { useAppSelector } from '@/store';
 import { snackbar } from '@/utils';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
+import { getCart } from '@/shared/service/bc/graphql/cart';
+import { storeHash } from '@/utils/basicConfig';
+import Cookies from 'js-cookie';
+import b2bLogger from '@/utils/b3Logger';
+import { WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
 import {
   ValidatedProductError,
   ValidatedProductWarning,
@@ -44,6 +49,97 @@ export default function QuickAdd() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [blockPendingAccountViewPrice] = useBlockPendingAccountViewPrice();
+
+  // Call webhook to update cart prices for products
+  const callUpdateCartPricesWebhook = async (cartId: string, products: CustomFieldItems[]) => {
+    try {
+      const cartInfo = await getCart(cartId);
+
+      const lineItems = (cartInfo?.data?.site?.cart?.lineItems?.physicalItems || []) as Array<{
+        entityId: string;
+        sku: string;
+        productEntityId: number;
+        variantEntityId: number;
+        name: string;
+        quantity: number;
+        originalPrice: {
+          value: number;
+        };
+        [key: string]: any;
+      }>;
+
+      if (lineItems.length === 0) {
+        console.warn('[Quick Add Webhook] No line items found in cart');
+        return;
+      }
+
+      // Get webhook config from global constants
+      const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE);
+
+      const webhookPromises = products.map(async (product, index) => {
+        const cartLineItem = lineItems.find(
+          (lineItem) =>
+            (lineItem.productEntityId === product.productId &&
+              lineItem.variantEntityId === product.variantId) ||
+            lineItems.length === 1
+        );
+
+        if (!cartLineItem) {
+          console.warn(
+            `[Quick Add Webhook] No matching cart line item found for product: ${product.productId} variant: ${product.variantId}`,
+          );
+          return null;
+        }
+
+        const webhookBody = {
+          action: 'update_cart_prices',
+          cart_id: cartId,
+          cart_item: {
+            item_id: cartLineItem.entityId || '',
+            product_id: product.productId,
+            variant_id: product.variantId,
+            sku: cartLineItem.sku || '',
+            name: cartLineItem.name || '',
+            quantity: product.quantity || 1,
+            epicor_price: cartLineItem.originalPrice?.value || 0,
+            original_price: cartLineItem.originalPrice?.value || 0,
+          },
+          store_hash: storeHash,
+          auth_token: authToken,
+          item_number: index + 1,
+          total_items: products.length,
+        };
+
+        try {
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(webhookBody),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Webhook error: ${response.status}`);
+          }
+
+          const responseData = await response.json();
+          return Array.isArray(responseData) ? responseData[0] : responseData;
+        } catch (error) {
+          console.error(`[Quick Add Webhook] Error calling webhook for product ${index + 1}:`, error);
+          b2bLogger.error('Error calling update cart prices webhook:', error);
+          return null;
+        }
+      });
+
+      await Promise.all(webhookPromises);
+    } catch (error) {
+      console.error('[Quick Add Webhook] Error in webhook call:', error);
+      b2bLogger.error('Error updating cart prices:', error);
+      throw error;
+    }
+  };
 
   const handleAddRowsClick = () => {
     setNumRows((current) => current + INITIAL_NUM_ROWS);
@@ -396,24 +492,47 @@ export default function QuickAdd() {
   };
 
   const addProductsToCart = async (products: CustomFieldItems[]) => {
-    const res = await createOrUpdateExistingCart(products);
+    try {
+      setIsLoading(true);
+      const res = await createOrUpdateExistingCart(products);
 
-    if (res && res.errors) {
-      snackbar.error(res.errors[0].message);
-    } else {
-      snackbar.success(b3Lang('purchasedProducts.quickOrderPad.productsAdded'), {
-        action: {
-          label: b3Lang('purchasedProducts.quickOrderPad.viewCart'),
-          onClick: () => {
-            if (window.b2b.callbacks.dispatchEvent('on-click-cart-button')) {
-              window.location.href = CART_URL;
-            }
+      if (res && res.errors) {
+        snackbar.error(res.errors[0].message);
+      } else {
+        // Get cart ID after adding to cart
+        const cartId =
+          res?.data?.cart?.createCart?.cart?.entityId ||
+          res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+          Cookies.get('cartId') ||
+          '';
+
+        // Call webhook after adding to cart
+        if (cartId && products.length > 0) {
+          try {
+            await callUpdateCartPricesWebhook(cartId, products);
+          } catch (webhookError) {
+            console.error('[Quick Add] Webhook error:', webhookError);
+          }
+        }
+
+        snackbar.success(b3Lang('purchasedProducts.quickOrderPad.productsAdded'), {
+          action: {
+            label: b3Lang('purchasedProducts.quickOrderPad.viewCart'),
+            onClick: () => {
+              if (window.b2b.callbacks.dispatchEvent('on-click-cart-button')) {
+                window.location.href = CART_URL;
+              }
+            },
           },
-        },
-      });
-    }
+        });
+      }
 
-    b3TriggerCartNumber();
+      b3TriggerCartNumber();
+    } catch (error) {
+      console.error('[Quick Add] Error in addProductsToCart:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddToList = () => {

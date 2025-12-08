@@ -1,3 +1,5 @@
+import { WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
+
 /**
  * Epicor Pricing Service
  * Fetches Epicor prices from N8N webhook
@@ -28,7 +30,7 @@ interface EpicorPricingResponse {
   timestamp?: string;
 }
 
-const N8N_WEBHOOK_URL = 'https://cannon.n8n.asgard.dcw.dev/webhook/epicor-pricing';
+const N8N_WEBHOOK_URL = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.EPICOR_PRICING);
 const CACHE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // In-memory cache for pricing data

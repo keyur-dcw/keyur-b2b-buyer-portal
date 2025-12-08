@@ -30,6 +30,8 @@ import {
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart, deleteCartData, updateCart } from '@/utils/cartUtils';
 import { validateProducts } from '@/utils/validateProducts';
+import { storeHash } from '@/utils/basicConfig';
+import { WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
 
 interface ShoppingDetailFooterProps {
   shoppingListInfo: any;
@@ -234,6 +236,100 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
     return true;
   };
 
+  // Call webhook to update cart prices for selected items
+  const callUpdateCartPricesWebhook = async (cartId: string, selectedItems: ProductsProps[]) => {
+    try {
+      // Get cart info to get line items with entityId
+      const cartInfo = await getCart(cartId);
+
+      const lineItems = (cartInfo?.data?.site?.cart?.lineItems?.physicalItems || []) as Array<{
+        entityId: string;
+        sku: string;
+        productEntityId: number;
+        variantEntityId: number;
+        name: string;
+        quantity: number;
+        originalPrice: {
+          value: number;
+        };
+        [key: string]: any;
+      }>;
+
+      if (lineItems.length === 0) {
+        console.warn('[Webhook] No line items found in cart');
+        return;
+      }
+
+      // Get webhook config from global constants
+      const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE);
+
+      // Call webhook for each selected item
+      const webhookPromises = selectedItems.map(async (item, index) => {
+        const { node } = item;
+        
+        // Find matching cart line item
+        const cartLineItem = lineItems.find(
+          (lineItem) => 
+            lineItem.sku === node.variantSku || 
+            lineItem.productEntityId === node.productId
+        );
+
+        if (!cartLineItem) {
+          console.warn(`[Webhook] No matching cart line item found for product: ${node.productName} (SKU: ${node.variantSku})`);
+          return null;
+        }
+
+        const webhookBody = {
+          action: 'update_cart_prices',
+          cart_id: cartId,
+          cart_item: {
+            item_id: cartLineItem.entityId || '',
+            product_id: node.productId,
+            variant_id: node.variantId,
+            sku: node.variantSku,
+            name: node.productName,
+            quantity: Number(node.quantity) || 1,
+            epicor_price: Number(node.basePrice) || 0,
+            original_price: Number(node.basePrice) || 0,
+          },
+          store_hash: storeHash,
+          auth_token: authToken,
+          item_number: index + 1,
+          total_items: selectedItems.length,
+        };
+
+        try {
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(webhookBody),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Webhook error: ${response.status}`);
+          }
+
+          const responseData = await response.json();
+          return Array.isArray(responseData) ? responseData[0] : responseData;
+        } catch (error) {
+          console.error(`[Webhook] Error calling webhook for item ${index + 1}:`, error);
+          b2bLogger.error('Error calling update cart prices webhook:', error);
+          return null;
+        }
+      });
+
+      // Wait for all webhook calls to complete
+      await Promise.all(webhookPromises);
+    } catch (error) {
+      console.error('[Webhook] Error in webhook call:', error);
+      b2bLogger.error('Error updating cart prices:', error);
+      throw error;
+    }
+  };
+
   const shouldRedirectCheckout = () => {
     if (
       allowJuniorPlaceOrder &&
@@ -296,21 +392,49 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
     );
 
     if (validateSuccessArr.length !== 0) {
+      console.log('[Add to Cart] Starting frontend add to cart process');
+      console.log('[Add to Cart] Validated success items:', validateSuccessArr);
+
       const lineItems = addLineItems(validateSuccessArr);
       const deleteCartObject = deleteCartData(cartEntityId);
       const cartInfo = await getCart();
       let res = null;
+      let cartId: string = '';
+
       // @ts-expect-error Keeping it like this to avoid breaking changes, will fix in a following commit.
       if (allowJuniorPlaceOrder && cartInfo.length) {
         await deleteCart(deleteCartObject);
         res = await updateCart(cartInfo, lineItems);
+        cartId = res?.data?.cart?.addCartLineItems?.cart?.entityId || 
+                 cartInfo.data.site.cart?.entityId || 
+                 Cookies.get('cartId') || '';
       } else {
         res = await createOrUpdateExistingCart(lineItems);
+        cartId = res?.data?.cart?.createCart?.cart?.entityId || 
+                 res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+                 Cookies.get('cartId') || '';
         b3TriggerCartNumber();
       }
+
       if (res && res.errors) {
         snackbar.error(res.errors[0].message);
       } else if (validateFailureArr.length === 0) {
+        // Map validateSuccessArr back to checkedArr format for webhook
+        const successItems = checkedArr.filter((item: ProductsProps) => {
+          return validateSuccessArr.some((successItem) => 
+            successItem.node.variantSku === item.node.variantSku
+          );
+        });
+
+        // Call webhook with selected items after adding to cart
+        if (cartId && successItems.length > 0) {
+          try {
+            await callUpdateCartPricesWebhook(cartId, successItems);
+          } catch (webhookError) {
+            console.error('[Add to Cart] Webhook error:', webhookError);
+          }
+        }
+
         shouldRedirectCheckout();
       }
     }
@@ -337,16 +461,34 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
       const lineItems = addLineItems(items);
       const deleteCartObject = deleteCartData(items);
       const cartInfo = await getCart();
+      let cartId: string = '';
+
       if (allowJuniorPlaceOrder && cartInfo.data.site.cart) {
         await deleteCart(deleteCartObject);
-        await updateCart(cartInfo, lineItems);
+        const updateResult = await updateCart(cartInfo, lineItems);
+        cartId = updateResult?.data?.cart?.addCartLineItems?.cart?.entityId || 
+                 cartInfo.data.site.cart.entityId || 
+                 Cookies.get('cartId') || '';
       } else {
-        await createOrUpdateExistingCart(lineItems);
+        const createResult = await createOrUpdateExistingCart(lineItems);
+        cartId = createResult?.data?.cart?.createCart?.cart?.entityId || 
+                 createResult?.data?.cart?.addCartLineItems?.cart?.entityId ||
+                 Cookies.get('cartId') || '';
         b3TriggerCartNumber();
       }
+
+      // Call webhook with selected items after adding to cart
+      if (cartId && checkedArr.length > 0) {
+        try {
+          await callUpdateCartPricesWebhook(cartId, checkedArr);
+        } catch (webhookError) {
+          console.error('[Add to Cart] Webhook error:', webhookError);
+        }
+      }
+
       shouldRedirectCheckout();
       setValidateSuccessProducts(items);
-    } catch (e: unknown) {
+      } catch (e: unknown) {
       if (e instanceof Error) {
         setValidateFailureProducts(mapToProductsFailedArray(items));
         snackbar.error(e.message);
@@ -371,6 +513,8 @@ function ShoppingDetailFooter(props: ShoppingDetailFooterProps) {
     try {
       setLoading(true);
       await addToCart();
+    } catch (error) {
+      console.error('[Add to Cart] Error in add to cart process:', error);
     } finally {
       setLoading(false);
     }

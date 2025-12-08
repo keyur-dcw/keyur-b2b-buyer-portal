@@ -5,6 +5,8 @@ export interface OrderIntegrationInfo {
   EpicorOrderStatus: string;
 }
 
+import { WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
+
 export interface N8nEpicorResponse {
   success: boolean;
   EpicorErpOrderNumber?: string;
@@ -14,13 +16,6 @@ export interface N8nEpicorResponse {
     value: string;
   }>;
 }
-
-/**
- * Configuration for n8n endpoint
- */
-const CONFIG = {
-  N8N_ENDPOINT: 'https://cannon.n8n.asgard.dcw.dev/webhook/getOrderEpicorId',
-};
 
 /**
  * Fetches Epicor Order ID from n8n endpoint (same as order confirmation page)
@@ -36,7 +31,7 @@ export const getBigCommerceOrderMetaFields = async (
 
   try {
     // Call n8n endpoint with order ID (same as order confirmation page)
-    const n8nUrl = `${CONFIG.N8N_ENDPOINT}?orderId=${orderId}`;
+    const n8nUrl = `${getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.GET_ORDER_EPICOR_ID)}?orderId=${orderId}`;
 
     const response = await fetch(n8nUrl, {
       method: 'GET',

@@ -72,6 +72,26 @@ const CART_FALLBACK_VALUE = platform === 'bigcommerce' ? '/cart.php' : '/cart';
 export const CART_URL = cartUrl ?? CART_FALLBACK_VALUE;
 export const CHECKOUT_URL = '/checkout';
 
+// Webhook configuration - Update these values to change webhook base URL and auth token globally
+export const WEBHOOK_CONFIG = {
+  BASE_URL: 'https://cannon.n8n.asgard.dcw.dev',
+  AUTH_TOKEN: 'pte9meprexvgw4td3ajlirxdsvk0e07',
+  ENDPOINTS: {
+    UPDATE_CART_PRICE: '/webhook/update-cart-price',
+    EPICOR_PRICING: '/webhook/epicor-pricing',
+    GET_ORDER_EPICOR_ID: '/webhook/getOrderEpicorId',
+  },
+} as const;
+
+// Helper function to build full webhook URL
+export const getWebhookUrl = (endpoint: string): string => {
+  const baseUrl = WEBHOOK_CONFIG.BASE_URL.endsWith('/')
+    ? WEBHOOK_CONFIG.BASE_URL.slice(0, -1)
+    : WEBHOOK_CONFIG.BASE_URL;
+  const endpointPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${baseUrl}${endpointPath}`;
+};
+
 export const permissionLevels = {
   USER: 1,
   COMPANY: 2,
