@@ -6,7 +6,7 @@ import Cookies from 'js-cookie';
 
 import { B3CustomForm } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
-import { CART_URL } from '@/constants';
+import { CART_URL, WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
 import {
@@ -14,9 +14,11 @@ import {
   addProductToShoppingList,
   getVariantInfoBySkus,
 } from '@/shared/service/b2b';
+import { getCart } from '@/shared/service/bc/graphql/cart';
 import { isB2BUserSelector, useAppSelector } from '@/store';
 import { BigCommerceStorefrontAPIBaseURL, snackbar } from '@/utils';
 import b2bLogger from '@/utils/b3Logger';
+import { storeHash } from '@/utils/basicConfig';
 import b3TriggerCartNumber from '@/utils/b3TriggerCartNumber';
 import { createOrUpdateExistingCart } from '@/utils/cartUtils';
 
@@ -197,6 +199,115 @@ export default function OrderDialog({
     return isValid;
   };
 
+  // Call webhook to update cart prices for re-ordered products
+  const callUpdateCartPricesWebhook = async (cartId: string, items: CustomFieldItems[]) => {
+    try {
+      const cartInfo = await getCart(cartId);
+
+      const lineItems = (cartInfo?.data?.site?.cart?.lineItems?.physicalItems || []) as Array<{
+        entityId: string;
+        sku: string;
+        productEntityId: number;
+        variantEntityId: number;
+        name: string;
+        quantity: number;
+        originalPrice: {
+          value: number;
+        };
+        [key: string]: any;
+      }>;
+
+      if (lineItems.length === 0) {
+        console.warn('[Re-Order Webhook] No line items found in cart');
+        return;
+      }
+
+      const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE_B2B);
+
+      // Build array of all cart items for batch webhook call
+      const cart_items = items
+        .map((item) => {
+          const cartLineItem = lineItems.find(
+            (lineItem) =>
+              (lineItem.productEntityId === item.productId &&
+                lineItem.variantEntityId === item.variantId) ||
+              lineItems.length === 1
+          );
+
+          if (!cartLineItem) {
+            console.warn(
+              `[Re-Order Webhook] No matching cart line item found for product: ${item.productId} variant: ${item.variantId}`,
+            );
+            return null;
+          }
+
+          return {
+            item_id: cartLineItem.entityId || '',
+            product_id: item.productId,
+            variant_id: item.variantId,
+            sku: cartLineItem.sku || '',
+            name: cartLineItem.name || '',
+            quantity: item.quantity || 1,
+            epicor_price: cartLineItem.originalPrice?.value || 0,
+            original_price: cartLineItem.originalPrice?.value || 0,
+          };
+        })
+        .filter((item) => item !== null);
+
+      if (cart_items.length === 0) {
+        console.warn('[Re-Order Webhook] No valid cart items to send');
+        return;
+      }
+
+      // Send all items in a single webhook call
+      const webhookBody = {
+        action: 'update_cart_prices',
+        cart_id: cartId,
+        cart_items: cart_items,
+        store_hash: storeHash,
+        auth_token: authToken,
+        total_items: cart_items.length,
+      };
+
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(webhookBody),
+        });
+
+        if (!response.ok) {
+          let errorMessage = `Webhook error: ${response.status}`;
+          try {
+            const errorData = await response.text();
+            if (errorData) {
+              errorMessage += ` - ${errorData}`;
+              console.error('[Re-Order Webhook] Error response body:', errorData);
+            }
+          } catch (parseError) {
+            // Ignore if we can't parse the error
+          }
+          throw new Error(errorMessage);
+        }
+
+        const responseData = await response.json();
+        
+        return responseData;
+      } catch (error) {
+        console.error('[Re-Order Webhook] Error calling webhook:', error);
+        b2bLogger.error('Error calling update cart prices webhook:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('[Re-Order Webhook] Error in webhook call:', error);
+      b2bLogger.error('Error updating cart prices:', error);
+      throw error;
+    }
+  };
+
   const handleReorder = async () => {
     setIsRequestLoading(true);
 
@@ -221,10 +332,12 @@ export default function OrderDialog({
       });
 
       if (skus.length <= 0) {
+        setIsRequestLoading(false);
         return;
       }
 
       if (!validateProductNumber(variantInfoList, skus)) {
+        setIsRequestLoading(false);
         snackbar.error(b3Lang('purchasedProducts.error.fillCorrectQuantity'));
         return;
       }
@@ -233,6 +346,25 @@ export default function OrderDialog({
       const status = res && (res.data.cart.createCart || res.data.cart.addCartLineItems);
 
       if (status) {
+        // Get cart ID after adding to cart
+        const cartId =
+          res?.data?.cart?.createCart?.cart?.entityId ||
+          res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+          Cookies.get('cartId') ||
+          '';
+
+        // Call webhook after adding to cart
+        if (cartId && items.length > 0) {
+          try {
+            await callUpdateCartPricesWebhook(cartId, items);
+          } catch (webhookError) {
+            console.error('[Re-Order] Webhook error:', webhookError);
+          }
+        }
+
+        // Stop loader and show view cart after webhook completes
+        setIsRequestLoading(false);
+        
         setOpen(false);
         snackbar.success(b3Lang('orderDetail.reorder.productsAdded'), {
           action: {
@@ -246,17 +378,17 @@ export default function OrderDialog({
         });
         b3TriggerCartNumber();
       } else if (res.errors) {
+        setIsRequestLoading(false);
         snackbar.error(res.errors[0].message);
       }
     } catch (err) {
+      setIsRequestLoading(false);
       if (err instanceof Error) {
         snackbar.error(err.message);
       } else if (typeof err === 'object' && err !== null && 'detail' in err) {
         const customError = err as { detail: string };
         snackbar.error(customError.detail);
       }
-    } finally {
-      setIsRequestLoading(false);
     }
   };
 

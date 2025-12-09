@@ -7,12 +7,17 @@ import { B3QuantityTextField } from '@/components';
 import B3Dialog from '@/components/B3Dialog';
 import CustomButton from '@/components/button/CustomButton';
 import B3Spin from '@/components/spin/B3Spin';
-import { CART_URL, CHECKOUT_URL, PRODUCT_DEFAULT_IMAGE } from '@/constants';
+import Cookies from 'js-cookie';
+
+import { CART_URL, CHECKOUT_URL, PRODUCT_DEFAULT_IMAGE, WEBHOOK_CONFIG, getWebhookUrl } from '@/constants';
 import { useMobile } from '@/hooks/useMobile';
 import { useB3Lang } from '@/lib/lang';
+import { getCart } from '@/shared/service/bc/graphql/cart';
 import { activeCurrencyInfoSelector, rolePermissionSelector, useAppSelector } from '@/store';
 import { ShoppingListStatus } from '@/types/shoppingList';
 import { currencyFormat, snackbar } from '@/utils';
+import b2bLogger from '@/utils/b3Logger';
+import { storeHash } from '@/utils/basicConfig';
 import { setModifierQtyPrice } from '@/utils/b3Product/b3Product';
 import {
   addLineItems,
@@ -213,6 +218,114 @@ export default function ReAddToCart(props: ShoppingProductsProps) {
     setValidateFailureProducts(newProduct);
   };
 
+  // Call webhook to update cart prices for re-added products
+  const callUpdateCartPricesWebhook = async (cartId: string, products: ProductsProps[]) => {
+    try {
+      const cartInfo = await getCart(cartId);
+
+      const lineItems = (cartInfo?.data?.site?.cart?.lineItems?.physicalItems || []) as Array<{
+        entityId: string;
+        sku: string;
+        productEntityId: number;
+        variantEntityId: number;
+        name: string;
+        quantity: number;
+        originalPrice: {
+          value: number;
+        };
+        [key: string]: any;
+      }>;
+
+      if (lineItems.length === 0) {
+        console.warn('[Re-Add to Cart Webhook] No line items found in cart');
+        return;
+      }
+
+      const authToken = WEBHOOK_CONFIG.AUTH_TOKEN;
+      const webhookUrl = getWebhookUrl(WEBHOOK_CONFIG.ENDPOINTS.UPDATE_CART_PRICE_B2B);
+
+      // Build array of all cart items for batch webhook call
+      const cart_items = products
+        .map((item) => {
+          const { node } = item;
+          
+          const cartLineItem = lineItems.find(
+            (lineItem) => 
+              lineItem.sku === node.variantSku || 
+              lineItem.productEntityId === node.productId
+          );
+
+          if (!cartLineItem) {
+            console.warn(`[Re-Add to Cart Webhook] No matching cart line item found for product: ${node.productName} (SKU: ${node.variantSku})`);
+            return null;
+          }
+
+          return {
+            item_id: cartLineItem.entityId || '',
+            product_id: node.productId,
+            variant_id: node.variantId,
+            sku: node.variantSku,
+            name: node.productName,
+            quantity: Number(node.quantity) || 1,
+            epicor_price: Number(node.basePrice) || 0,
+            original_price: Number(node.basePrice) || 0,
+          };
+        })
+        .filter((item) => item !== null);
+
+      if (cart_items.length === 0) {
+        console.warn('[Re-Add to Cart Webhook] No valid cart items to send');
+        return;
+      }
+
+      // Send all items in a single webhook call
+      const webhookBody = {
+        action: 'update_cart_prices',
+        cart_id: cartId,
+        cart_items: cart_items,
+        store_hash: storeHash,
+        auth_token: authToken,
+        total_items: cart_items.length,
+      };
+
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(webhookBody),
+        });
+
+        if (!response.ok) {
+          let errorMessage = `Webhook error: ${response.status}`;
+          try {
+            const errorData = await response.text();
+            if (errorData) {
+              errorMessage += ` - ${errorData}`;
+              console.error('[Re-Add to Cart Webhook] Error response body:', errorData);
+            }
+          } catch (parseError) {
+            // Ignore if we can't parse the error
+          }
+          throw new Error(errorMessage);
+        }
+
+        const responseData = await response.json();
+        
+        return responseData;
+      } catch (error) {
+        console.error('[Re-Add to Cart Webhook] Error calling webhook:', error);
+        b2bLogger.error('Error calling update cart prices webhook:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('[Re-Add to Cart Webhook] Error in webhook call:', error);
+      b2bLogger.error('Error updating cart prices:', error);
+      throw error;
+    }
+  };
+
   const shouldRedirectToCheckout = () => {
     handleCancelClicked();
     if (
@@ -251,16 +364,36 @@ export default function ReAddToCart(props: ShoppingProductsProps) {
       const res = await createOrUpdateExistingCart(lineItems);
 
       if (!res.errors) {
+        // Get cart ID after adding to cart
+        const cartId =
+          res?.data?.cart?.createCart?.cart?.entityId ||
+          res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+          Cookies.get('cartId') ||
+          '';
+
+        // Call webhook after adding to cart
+        if (cartId && products.length > 0) {
+          try {
+            await callUpdateCartPricesWebhook(cartId, products);
+          } catch (webhookError) {
+            console.error('[Re-Add to Cart] Webhook error:', webhookError);
+          }
+        }
+
+        // Stop loader and show view cart after webhook completes
+        setLoading(false);
         shouldRedirectToCheckout();
       }
 
       if (res.errors) {
+        setLoading(false);
         snackbar.error(res.message);
       }
 
       b3TriggerCartNumber();
-    } finally {
+    } catch (error) {
       setLoading(false);
+      console.error('[Re-Add to Cart] Error in add to cart process:', error);
     }
   };
 
@@ -272,16 +405,33 @@ export default function ReAddToCart(props: ShoppingProductsProps) {
       const res = await createOrUpdateExistingCart(lineItems);
 
       if (!res.errors) {
+        // Get cart ID after adding to cart
+        const cartId =
+          res?.data?.cart?.createCart?.cart?.entityId ||
+          res?.data?.cart?.addCartLineItems?.cart?.entityId ||
+          Cookies.get('cartId') ||
+          '';
+
+        // Call webhook after adding to cart
+        if (cartId && products.length > 0) {
+          try {
+            await callUpdateCartPricesWebhook(cartId, products);
+          } catch (webhookError) {
+            console.error('[Re-Add to Cart] Webhook error:', webhookError);
+          }
+        }
+
+        // Stop loader and show view cart after webhook completes
+        setLoading(false);
         shouldRedirectToCheckout();
       }
 
       b3TriggerCartNumber();
     } catch (e: unknown) {
+      setLoading(false);
       if (e instanceof Error) {
         snackbar.error(e.message);
       }
-    } finally {
-      setLoading(false);
     }
   };
 
