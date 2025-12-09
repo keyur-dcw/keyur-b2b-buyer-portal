@@ -148,6 +148,9 @@ export default function QuickAdd() {
 
         const responseData = await response.json();
         
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
         return responseData;
       } catch (error) {
         console.error('[Quick Add Webhook] Error calling webhook:', error);

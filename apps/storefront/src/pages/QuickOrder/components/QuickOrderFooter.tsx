@@ -242,6 +242,9 @@ function QuickOrderFooter(props: QuickOrderFooterProps) {
 
         const responseData = await response.json();
         
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
         return responseData;
       } catch (error) {
         console.error('[Quick Order Footer Webhook] Error calling webhook:', error);

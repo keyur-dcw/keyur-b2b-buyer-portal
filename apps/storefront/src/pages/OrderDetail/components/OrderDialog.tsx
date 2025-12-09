@@ -295,6 +295,9 @@ export default function OrderDialog({
 
         const responseData = await response.json();
         
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
         return responseData;
       } catch (error) {
         console.error('[Re-Order Webhook] Error calling webhook:', error);

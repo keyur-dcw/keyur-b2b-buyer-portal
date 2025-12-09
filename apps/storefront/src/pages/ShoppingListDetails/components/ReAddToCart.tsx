@@ -313,6 +313,9 @@ export default function ReAddToCart(props: ShoppingProductsProps) {
 
         const responseData = await response.json();
         
+        // Wait 10 seconds after webhook response
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        
         return responseData;
       } catch (error) {
         console.error('[Re-Add to Cart Webhook] Error calling webhook:', error);
