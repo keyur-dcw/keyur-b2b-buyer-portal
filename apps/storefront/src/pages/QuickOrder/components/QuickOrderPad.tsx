@@ -158,8 +158,14 @@ export default function QuickOrderPad() {
 
         const responseData = await response.json();
         
-        // Wait 10 seconds after webhook response
-        await new Promise((resolve) => setTimeout(resolve, 10000));
+        // Calculate dynamic delay based on number of products: 2 seconds per product
+        // 5 products = 10 sec, 10 products = 20 sec, 15 products = 30 sec, 20 products = 40 sec
+        const productCount = cart_items.length;
+        const delaySeconds = productCount * 2;
+        const delayMilliseconds = delaySeconds * 1000;
+        
+        // Wait dynamically based on product count after webhook response
+        await new Promise((resolve) => setTimeout(resolve, delayMilliseconds));
         
         return responseData;
       } catch (error) {
